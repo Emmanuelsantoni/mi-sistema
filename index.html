@@ -168,8 +168,6 @@ textarea{resize:vertical;min-height:60px}
 // ====================================================
 // SUPABASE AUTH + SYNC
 // ====================================================
-function lsSave(k,v){try{localStorage.setItem(k,JSON.stringify(v));}catch(e){}}
-function lsLoad(k){try{return JSON.parse(localStorage.getItem(k))||[];}catch(e){return[];}}
 const SUPABASE_URL='https://jnhilhripjvpakmhzytb.supabase.co';
 const SUPABASE_KEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpuaGlsaHJpcGp2cGFrbWh6eXRiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE2NjYwOTksImV4cCI6MjA5NzI0MjA5OX0.2GaPutKKL2sNHWLTdEQEQm0G-6E2fZJxX10Zz143-so';
 const sb=supabase.createClient(SUPABASE_URL,SUPABASE_KEY);
@@ -232,7 +230,7 @@ const SPACES = [
 const SMAP = Object.fromEntries(SPACES.map(s=>[s.id,s]));
 
 const MOD_LABELS = {
-  asistente:'🤖 Asistente', gastos:'💰 Gastos',
+  gastos:'💰 Gastos',
   vencimientos:'🔔 Vencimientos', tareas:'✅ Tareas',
   resumen:'📊 Resumen', notas:'📝 Notas'
 };
@@ -286,20 +284,13 @@ const esc=s=>(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&g
 // ══════════════════════════════════════════════
 // STATE
 // ══════════════════════════════════════════════
-let curSpace='pers', curMod='asistente', isGlobal=false;
+let curSpace='pers', curMod= isGlobal=false;
 let kanbanFilter='all';
 
 // ══════════════════════════════════════════════
 // INIT
 // ══════════════════════════════════════════════
-window.onload=()=>{
-  document.getElementById('top-date').textContent=
-    new Date().toLocaleDateString('es-AR',{weekday:'short',day:'numeric',month:'short'}).toUpperCase();
-  setCSSVars('pers');
-  buildSpaceTabs();
-  initSpeech();
-  goSpace('pers');
-};
+window.onload=()=>{ initAuth(); };
 
 function setCSSVars(spId){
   const s=SMAP[spId]||SPACES[0];
@@ -348,7 +339,6 @@ function goMod(id){
 function renderContent(){
   const area=document.getElementById('content');
   if(isGlobal){renderGlobal();return;}
-  if(curMod==='asistente') area.innerHTML=buildAsistente();
   else if(curMod==='gastos') area.innerHTML=buildGastos();
   else if(curMod==='vencimientos') area.innerHTML=buildVencs();
   else if(curMod==='tareas') area.innerHTML=buildTareas();
@@ -358,7 +348,6 @@ function renderContent(){
 }
 
 function afterRender(){
-  if(curMod==='asistente'){
     const cz=document.getElementById('chat-zone');
     if(cz){cz.innerHTML=chatHtml;cz.scrollTop=cz.scrollHeight;}
     if(pendIA)showPropuesta(pendIA);
@@ -392,24 +381,6 @@ function renderAlerts(){
 // ══════════════════════════════════════════════
 // SPEECH
 // ══════════════════════════════════════════════
-function initSpeech(){
-  const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
-  if(!SR)return;
-  recognition=new SR();
-  recognition.lang='es-AR';recognition.continuous=false;recognition.interimResults=true;
-  recognition.onresult=e=>{
-    let t='';for(let i=e.resultIndex;i<e.results.length;i++)t+=e.results[i][0].transcript;
-    const el=document.getElementById('asist-in');if(el)el.value=t;
-  };
-  recognition.onend=()=>{
-    grabando=false;
-    const btn=document.getElementById('mic-btn');
-    if(btn){btn.classList.remove('rec');btn.textContent='🎤';}
-    const v=document.getElementById('asist-in');
-    if(v&&v.value.trim())setTimeout(enviar,400);
-  };
-  recognition.onerror=()=>{grabando=false;const b=document.getElementById('mic-btn');if(b){b.classList.remove('rec');b.textContent='🎤';}};
-}
 
 function toggleMic(){
   if(!recognition){alert('Necesitás Chrome y https:// para usar el micrófono.');return;}
@@ -617,7 +588,6 @@ function renderTablaGastos(){
 
 function delGasto(id){
   setData('pers','gastos',getData('pers','gastos').filter(g=>g.id!==id));
-  sbDel('gastos',id);
   renderTablaGastos();
 }
 
@@ -710,7 +680,6 @@ function pagarVenc(id){
 }
 function delVenc(id){
   setData(curSpace,'vencs',getData(curSpace,'vencs').filter(v=>v.id!==id));
-  sbDel('vencimientos',id);
   renderContent();renderAlerts();
 }
 
@@ -832,6 +801,7 @@ function editTarea(id,field,val){
 }
 function delTarea(id){
   setTareas(getTareas().filter(t=>t.id!==id));
+  sbDel('tareas',id);
   closeModal();
   if(curMod==='tareas')renderContent();
   renderAlerts();
@@ -933,7 +903,6 @@ function actualizarNota(id){
 }
 function delNota(id){
   setData(curSpace,'notas',getData(curSpace,'notas').filter(n=>n.id!==id));
-  sbDel('notas',id);
   renderContent();
 }
 
