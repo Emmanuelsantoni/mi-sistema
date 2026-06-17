@@ -2,6 +2,7 @@
 <html lang="es">
 <head>
 <meta charset="UTF-8">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="theme-color" content="#1a1916">
@@ -171,11 +172,31 @@ textarea{resize:vertical;min-height:60px}
 </style>
 </head>
 <body>
+<div id="login-screen" style="display:none;position:fixed;inset:0;background:#1a1916;z-index:9999;align-items:center;justify-content:center;flex-direction:column;padding:24px">
+  <div style="width:100%;max-width:340px">
+    <div style="text-align:center;margin-bottom:32px">
+      <div style="font-size:36px;margin-bottom:8px">📱</div>
+      <div style="font-size:22px;font-weight:700;color:#fff;margin-bottom:4px">Mi Sistema</div>
+      <div style="font-size:13px;color:rgba(255,255,255,.45)">Ingresá para continuar</div>
+    </div>
+    <div style="margin-bottom:14px">
+      <label style="display:block;font-size:12px;font-weight:600;color:rgba(255,255,255,.6);margin-bottom:5px">Email</label>
+      <input id="l-email" type="email" placeholder="tu@email.com" style="background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.2);color:#fff;font-size:15px;padding:11px 13px;border-radius:9px;width:100%;outline:none" onkeydown="if(event.key==='Enter')document.getElementById('l-pass').focus()">
+    </div>
+    <div style="margin-bottom:8px">
+      <label style="display:block;font-size:12px;font-weight:600;color:rgba(255,255,255,.6);margin-bottom:5px">Contraseña</label>
+      <input id="l-pass" type="password" placeholder="••••••••" style="background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.2);color:#fff;font-size:15px;padding:11px 13px;border-radius:9px;width:100%;outline:none" onkeydown="if(event.key==='Enter')doLogin()">
+    </div>
+    <div id="l-err" style="color:#e24b4a;font-size:13px;margin-bottom:10px;text-align:center;min-height:18px"></div>
+    <button id="l-btn" onclick="doLogin()" style="width:100%;padding:13px;background:#7c3aed;border:none;border-radius:9px;color:#fff;font-size:15px;font-weight:700;cursor:pointer">Entrar</button>
+  </div>
+</div>
+
 <div class="app">
   <div class="top-bar">
     <div class="top-row">
       <div><div class="app-name">📱 Mi Sistema</div><div class="top-date" id="top-date"></div></div>
-      <button onclick="goSpace('global')" style="background:rgba(255,255,255,.1);border:none;border-radius:8px;padding:6px 10px;color:rgba(255,255,255,.65);font-size:12px;font-weight:600;cursor:pointer">🌐 Global</button>
+      <div style="display:flex;gap:6px;align-items:center"><button onclick="syncManual()" id="sync-btn" style="background:rgba(255,255,255,.1);border:none;border-radius:8px;padding:6px 10px;color:rgba(255,255,255,.65);font-size:12px;font-weight:600;cursor:pointer">☁️</button><button onclick="goSpace('global')" style="background:rgba(255,255,255,.1);border:none;border-radius:8px;padding:6px 10px;color:rgba(255,255,255,.65);font-size:12px;font-weight:600;cursor:pointer">🌐 Global</button><button onclick="doLogout()" style="background:rgba(255,255,255,.1);border:none;border-radius:8px;padding:6px 10px;color:rgba(255,255,255,.65);font-size:12px;font-weight:600;cursor:pointer">⏏</button></div>
     </div>
     <div class="space-tabs" id="space-tabs"></div>
   </div>
@@ -189,6 +210,154 @@ textarea{resize:vertical;min-height:60px}
 </div>
 
 <script>
+// ══════════════════════════════════════════════
+// SUPABASE
+// ══════════════════════════════════════════════
+const SUPABASE_URL = 'https://jnhilhripjvpakmhzytb.supabase.co';
+const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpuaGlsaHJpcGp2cGFrbWh6eXRiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE2NjYwOTksImV4cCI6MjA5NzI0MjA5OX0.2GaPutKKL2sNHWLTdEQEQm0G-6E2fZJxX10Zz143-so';
+const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+let sbUser = null;
+let isOnline = navigator.onLine;
+window.addEventListener('online', ()=>{ isOnline=true; flushQueue(); updateSyncBtn(); });
+window.addEventListener('offline', ()=>{ isOnline=false; updateSyncBtn(); });
+
+function updateSyncBtn(){
+  const btn=document.getElementById('sync-btn');
+  if(!btn)return;
+  btn.textContent=isOnline?'☁️':'📴';
+  btn.title=isOnline?'Online — toca para sincronizar':'Sin conexión';
+}
+
+// ── AUTH ─────────────────────────────────────
+async function initAuth(){
+  try{
+    const {data}=await sb.auth.getSession();
+    if(data.session?.user){
+      sbUser=data.session.user;
+      hideLogin();
+      await pullFromSupabase();
+    }else{showLogin();return;}
+  }catch(e){showLogin();return;}
+  appInit();
+}
+
+function showLogin(){
+  const el=document.getElementById('login-screen');
+  if(el){el.style.display='flex';}
+}
+function hideLogin(){
+  const el=document.getElementById('login-screen');
+  if(el){el.style.display='none';}
+}
+
+async function doLogin(){
+  const email=document.getElementById('l-email').value.trim();
+  const pass=document.getElementById('l-pass').value;
+  const btn=document.getElementById('l-btn');
+  const err=document.getElementById('l-err');
+  btn.disabled=true;btn.textContent='Entrando...';err.textContent='';
+  try{
+    const {data,error}=await sb.auth.signInWithPassword({email,password:pass});
+    if(error){err.textContent='Email o contraseña incorrectos';btn.disabled=false;btn.textContent='Entrar';return;}
+    sbUser=data.user;
+    hideLogin();
+    await pullFromSupabase();
+    appInit();
+  }catch(e){err.textContent='Error de conexión';btn.disabled=false;btn.textContent='Entrar';}
+}
+
+async function doLogout(){
+  await sb.auth.signOut();
+  sbUser=null;
+  showLogin();
+}
+
+// ── PULL desde Supabase ──────────────────────
+async function pullFromSupabase(){
+  if(!sbUser||!isOnline)return;
+  try{
+    const uid=sbUser.id;
+    const [{data:gastos},{data:vencs},{data:tareas},{data:notas}]=await Promise.all([
+      sb.from('gastos').select('*').eq('user_id',uid),
+      sb.from('vencimientos').select('*').eq('user_id',uid),
+      sb.from('tareas').select('*').eq('user_id',uid),
+      sb.from('notas').select('*').eq('user_id',uid),
+    ]);
+    if(gastos)lsSave('ms2_pers_gastos',gastos.map(g=>({id:g.id,fecha:g.fecha,importe:g.importe,rubro:g.rubro,desc:g.descripcion||''})));
+    if(vencs){
+      const bySpace={};
+      vencs.forEach(v=>{if(!bySpace[v.espacio])bySpace[v.espacio]=[];bySpace[v.espacio].push({id:v.id,nombre:v.nombre,cat:v.cat||'',fecha:v.fecha,importe:v.importe,repetir:v.repetir||0,alerta:v.alerta||7,nota:v.nota||'',pagado:v.pagado||false});});
+      Object.entries(bySpace).forEach(([sp,arr])=>lsSave('ms2_'+sp+'_vencs',arr));
+    }
+    if(tareas)lsSave('ms2_tareas',tareas.map(t=>({id:t.id,titulo:t.titulo,space:t.espacio,estado:t.estado||'Sin hacer',prio:t.prio||'Media',fecha:t.fecha||'',desc:t.descripcion||'',creada:t.creada||isoHoy()})));
+    if(notas){
+      const bySpace={};
+      notas.forEach(n=>{if(!bySpace[n.espacio])bySpace[n.espacio]=[];bySpace[n.espacio].push({id:n.id,texto:n.texto,fecha:n.fecha});});
+      Object.entries(bySpace).forEach(([sp,arr])=>lsSave('ms2_'+sp+'_notas',arr));
+    }
+    await flushQueue();
+  }catch(e){console.warn('Pull error',e);}
+}
+
+// ── PUSH helpers ──────────────────────────────
+async function sbUpsert(table,row){
+  if(!sbUser)return;
+  if(!isOnline){addToQueue('upsert',table,row);return;}
+  try{
+    const {error}=await sb.from(table).upsert(row);
+    if(error){console.warn('upsert error',error);addToQueue('upsert',table,row);}
+  }catch(e){addToQueue('upsert',table,row);}
+}
+async function sbDel(table,id){
+  if(!sbUser)return;
+  if(!isOnline){addToQueue('delete',table,{id});return;}
+  try{
+    const {error}=await sb.from(table).delete().eq('id',id);
+    if(error){addToQueue('delete',table,{id});}
+  }catch(e){addToQueue('delete',table,{id});}
+}
+
+// ── QUEUE offline ─────────────────────────────
+function addToQueue(op,table,payload){
+  const q=lsLoad('ms2_sync_queue');
+  q.push({op,table,payload,ts:Date.now()});
+  lsSave('ms2_sync_queue',q);
+}
+async function flushQueue(){
+  if(!sbUser||!isOnline)return;
+  const q=lsLoad('ms2_sync_queue');
+  if(!q.length)return;
+  const remaining=[];
+  for(const item of q){
+    try{
+      if(item.op==='upsert')await sb.from(item.table).upsert(item.payload);
+      else if(item.op==='delete')await sb.from(item.table).delete().eq('id',item.payload.id);
+    }catch(e){remaining.push(item);}
+  }
+  lsSave('ms2_sync_queue',remaining);
+  if(remaining.length===0&&q.length>0)toast('✅ Sincronizado','green');
+}
+
+async function syncManual(){
+  if(!sbUser){showLogin();return;}
+  const btn=document.getElementById('sync-btn');
+  if(btn)btn.textContent='⏳';
+  await pullFromSupabase();
+  renderContent();renderAlerts();
+  if(btn){btn.textContent=isOnline?'☁️':'📴';}
+  toast('✅ Sincronizado','green');
+}
+
+function appInit(){
+  document.getElementById('top-date').textContent=
+    new Date().toLocaleDateString('es-AR',{weekday:'short',day:'numeric',month:'short'}).toUpperCase();
+  setCSSVars('pers');
+  buildSpaceTabs();
+  initSpeech();
+  goSpace('pers');
+  updateSyncBtn();
+}
+
 // ══════════════════════════════════════════════
 // CONFIGURACIÓN
 // ══════════════════════════════════════════════
@@ -266,14 +435,7 @@ let kanbanFilter='all';
 // ══════════════════════════════════════════════
 // INIT
 // ══════════════════════════════════════════════
-window.onload=()=>{
-  document.getElementById('top-date').textContent=
-    new Date().toLocaleDateString('es-AR',{weekday:'short',day:'numeric',month:'short'}).toUpperCase();
-  setCSSVars('pers');
-  buildSpaceTabs();
-  initSpeech();
-  goSpace('pers');
-};
+window.onload=()=>{ initAuth(); };
 
 function setCSSVars(spId){
   const s=SMAP[spId]||SPACES[0];
@@ -517,7 +679,11 @@ function showPropuesta(items){
 function confirmarIA(){
   if(!pendIA)return;
   const arr=getData('pers','gastos');
-  pendIA.forEach(g=>arr.push({id:uid(),fecha:g.fecha,importe:g.importe,rubro:g.rubro,desc:g.desc||''}));
+  pendIA.forEach(g=>{
+    const ng={id:uid(),fecha:g.fecha,importe:g.importe,rubro:g.rubro,desc:g.desc||''};
+    arr.push(ng);
+    sbUpsert('gastos',{id:ng.id,user_id:sbUser?.id,fecha:ng.fecha,importe:ng.importe,rubro:ng.rubro,descripcion:ng.desc});
+  });
   setData('pers','gastos',arr);
   addBubble(`✅ ${pendIA.length>1?pendIA.length+' gastos guardados':'Gasto guardado'}. ¿Algo más?`,'ai');
   pendIA=null;
@@ -576,8 +742,10 @@ function guardarGasto(){
   const desc=document.getElementById('g-desc').value.trim();
   if(!fecha||!importe||importe<=0||!rubro){toast('Completá rubro, fecha e importe','red');return;}
   const arr=getData('pers','gastos');
-  arr.push({id:uid(),fecha,importe,rubro,desc});
+  const newGasto={id:uid(),fecha,importe,rubro,desc};
+  arr.push(newGasto);
   setData('pers','gastos',arr);
+  sbUpsert('gastos',{id:newGasto.id,user_id:sbUser?.id,fecha,importe,rubro,descripcion:desc});
   document.getElementById('g-imp').value='';
   document.getElementById('g-desc').value='';
   document.getElementById('g-rubro').value='';
@@ -615,6 +783,7 @@ function renderTablaGastos(){
 
 function delGasto(id){
   setData('pers','gastos',getData('pers','gastos').filter(g=>g.id!==id));
+  sbDel('gastos',id);
   renderTablaGastos();
 }
 
@@ -689,12 +858,14 @@ function guardarVenc(){
   const fecha=document.getElementById('v-fecha').value;
   if(!nombre||!fecha){toast('Ingresá nombre y fecha','red');return;}
   const arr=getData(curSpace,'vencs');
-  arr.push({id:uid(),nombre,cat:document.getElementById('v-cat').value,fecha,
+  const newVenc={id:uid(),nombre,cat:document.getElementById('v-cat').value,fecha,
     importe:parseFloat(document.getElementById('v-imp').value)||null,
     repetir:document.getElementById('v-rep').value,
     alerta:document.getElementById('v-alerta').value,
-    nota:document.getElementById('v-nota').value.trim(),pagado:false});
+    nota:document.getElementById('v-nota').value.trim(),pagado:false};
+  arr.push(newVenc);
   setData(curSpace,'vencs',arr);
+  sbUpsert('vencimientos',{id:newVenc.id,user_id:sbUser?.id,espacio:curSpace,nombre:newVenc.nombre,cat:newVenc.cat,fecha:newVenc.fecha,importe:newVenc.importe,repetir:parseInt(newVenc.repetir)||0,alerta:parseInt(newVenc.alerta)||7,nota:newVenc.nota,pagado:false});
   document.getElementById('v-nom').value='';document.getElementById('v-imp').value='';document.getElementById('v-nota').value='';
   renderContent();renderAlerts();toast('✅ Vencimiento guardado','green');
 }
@@ -703,10 +874,13 @@ function pagarVenc(id){
   const v=arr.find(x=>x.id===id);if(!v)return;
   const rep=parseInt(v.repetir||0);
   if(rep>0){v.fecha=addDays(v.fecha,rep);}else{v.pagado=true;}
-  setData(curSpace,'vencs',arr);renderContent();renderAlerts();
+  setData(curSpace,'vencs',arr);
+  sbUpsert('vencimientos',{id:v.id,user_id:sbUser?.id,espacio:curSpace,nombre:v.nombre,cat:v.cat||'',fecha:v.fecha,importe:v.importe,repetir:parseInt(v.repetir)||0,alerta:parseInt(v.alerta)||7,nota:v.nota||'',pagado:v.pagado||false});
+  renderContent();renderAlerts();
 }
 function delVenc(id){
   setData(curSpace,'vencs',getData(curSpace,'vencs').filter(v=>v.id!==id));
+  sbDel('vencimientos',id);
   renderContent();renderAlerts();
 }
 
@@ -813,6 +987,7 @@ function abrirTarea(id){
 function setEstado(id,estado,ci){
   const arr=getTareas();const t=arr.find(x=>x.id===id);if(!t)return;
   t.estado=estado;setTareas(arr);
+  sbUpsert('tareas',{id:t.id,user_id:sbUser?.id,espacio:t.space,titulo:t.titulo,estado:t.estado,prio:t.prio,fecha:t.fecha||null,descripcion:t.desc||'',creada:t.creada});
   document.querySelectorAll('.status-btn').forEach((b,i)=>{
     const e=ESTADOS[i];
     b.className='status-btn'+(e===estado?' on':'');
@@ -825,9 +1000,11 @@ function setEstado(id,estado,ci){
 function editTarea(id,field,val){
   const arr=getTareas();const t=arr.find(x=>x.id===id);if(!t)return;
   t[field]=val;setTareas(arr);renderAlerts();
+  sbUpsert('tareas',{id:t.id,user_id:sbUser?.id,espacio:t.space,titulo:t.titulo,estado:t.estado,prio:t.prio,fecha:t.fecha||null,descripcion:t.desc||'',creada:t.creada});
 }
 function delTarea(id){
   setTareas(getTareas().filter(t=>t.id!==id));
+  sbDel('tareas',id);
   closeModal();
   if(curMod==='tareas')renderContent();
   renderAlerts();
@@ -862,14 +1039,17 @@ function crearTarea(){
   const titulo=document.getElementById('nt-tit').value.trim();
   if(!titulo){toast('Ingresá un título','red');return;}
   const arr=getTareas();
-  arr.push({id:uid(),titulo,
+  const nt={id:uid(),titulo,
     space:document.getElementById('nt-sp').value,
     estado:document.getElementById('nt-est').value,
     prio:document.getElementById('nt-prio').value,
     fecha:document.getElementById('nt-fecha').value||'',
     desc:document.getElementById('nt-desc').value.trim(),
-    creada:isoHoy()});
-  setTareas(arr);closeModal();
+    creada:isoHoy()};
+  arr.push(nt);
+  setTareas(arr);
+  sbUpsert('tareas',{id:nt.id,user_id:sbUser?.id,espacio:nt.space,titulo:nt.titulo,estado:nt.estado,prio:nt.prio,fecha:nt.fecha||null,descripcion:nt.desc,creada:nt.creada});
+  closeModal();
   if(curMod==='tareas')renderContent();
   renderAlerts();toast('✅ Tarea creada','green');
 }
@@ -899,8 +1079,10 @@ function guardarNota(){
   const txt=document.getElementById('nota-txt').value.trim();
   if(!txt){toast('Escribí algo primero','red');return;}
   const arr=getData(curSpace,'notas');
-  arr.push({id:uid(),texto:txt,fecha:isoHoy()});
+  const nn={id:uid(),texto:txt,fecha:isoHoy()};
+  arr.push(nn);
   setData(curSpace,'notas',arr);
+  sbUpsert('notas',{id:nn.id,user_id:sbUser?.id,espacio:curSpace,texto:nn.texto,fecha:nn.fecha});
   document.getElementById('nota-txt').value='';
   renderContent();toast('✅ Nota guardada','green');
 }
@@ -925,10 +1107,12 @@ function actualizarNota(id){
   const n=arr.find(x=>x.id===id);if(!n)return;
   n.texto=txt;n.fecha=isoHoy();
   setData(curSpace,'notas',arr);
+  sbUpsert('notas',{id:n.id,user_id:sbUser?.id,espacio:curSpace,texto:n.texto,fecha:n.fecha});
   closeModal();renderContent();toast('✅ Nota actualizada','green');
 }
 function delNota(id){
   setData(curSpace,'notas',getData(curSpace,'notas').filter(n=>n.id!==id));
+  sbDel('notas',id);
   renderContent();
 }
 
