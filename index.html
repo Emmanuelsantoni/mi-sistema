@@ -200,10 +200,38 @@ async function pullFromSupabase(){
       sb.from('tareas').select('*').eq('user_id',uid),
       sb.from('notas').select('*').eq('user_id',uid),
     ]);
-    if(g)lsSave('ms2_pers_gastos',g.map(x=>({id:x.id,fecha:x.fecha,importe:x.importe,rubro:x.rubro,desc:x.descripcion||''})));
-    if(v){const bs={};v.forEach(x=>{if(!bs[x.espacio])bs[x.espacio]=[];bs[x.espacio].push({id:x.id,nombre:x.nombre,cat:x.cat||'',fecha:x.fecha,importe:x.importe,repetir:x.repetir||0,alerta:x.alerta||7,nota:x.nota||'',pagado:x.pagado||false});});Object.entries(bs).forEach(([s,a])=>lsSave('ms2_'+s+'_vencs',a));}
-    if(t)lsSave('ms2_tareas',t.map(x=>({id:x.id,titulo:x.titulo,space:x.espacio,estado:x.estado||'Sin hacer',prio:x.prio||'Media',fecha:x.fecha||'',desc:x.descripcion||'',creada:x.creada||new Date().toISOString().split('T')[0]})));
-    if(n){const bs={};n.forEach(x=>{if(!bs[x.espacio])bs[x.espacio]=[];bs[x.espacio].push({id:x.id,texto:x.texto,fecha:x.fecha});});Object.entries(bs).forEach(([s,a])=>lsSave('ms2_'+s+'_notas',a));}
+    // GASTOS: si Supabase tiene datos, usar esos; si no, subir los locales
+    if(g&&g.length){
+      lsSave('ms2_pers_gastos',g.map(x=>({id:x.id,fecha:x.fecha,importe:x.importe,rubro:x.rubro,desc:x.descripcion||'',empresa:x.empresa||'pers'})));
+    }else{
+      const local=lsLoad('ms2_pers_gastos');
+      for(const x of local) await sbUpsert('gastos',{id:x.id,user_id:uid,fecha:x.fecha,importe:x.importe,rubro:x.rubro,descripcion:x.desc||'',empresa:x.empresa||'pers'});
+    }
+    // VENCIMIENTOS
+    if(v&&v.length){
+      const bs={};
+      v.forEach(x=>{if(!bs[x.espacio])bs[x.espacio]=[];bs[x.espacio].push({id:x.id,nombre:x.nombre,cat:x.cat||'',fecha:x.fecha,importe:x.importe,repetir:x.repetir||0,alerta:x.alerta||7,nota:x.nota||'',pagado:x.pagado||false});});
+      Object.entries(bs).forEach(([s,a])=>lsSave('ms2_'+s+'_vencs',a));
+    }else{
+      const SPACES_IDS=['pers','sant','covi','tork'];
+      for(const sp of SPACES_IDS){const local=lsLoad('ms2_'+sp+'_vencs');for(const x of local) await sbUpsert('vencimientos',{id:x.id,user_id:uid,espacio:sp,nombre:x.nombre,cat:x.cat||'',fecha:x.fecha,importe:x.importe||null,repetir:parseInt(x.repetir)||0,alerta:parseInt(x.alerta)||7,nota:x.nota||'',pagado:x.pagado||false});}
+    }
+    // TAREAS
+    if(t&&t.length){
+      lsSave('ms2_tareas',t.map(x=>({id:x.id,titulo:x.titulo,space:x.espacio,estado:x.estado||'Sin hacer',prio:x.prio||'Media',fecha:x.fecha||'',desc:x.descripcion||'',creada:x.creada||new Date().toISOString().split('T')[0]})));
+    }else{
+      const local=lsLoad('ms2_tareas');
+      for(const x of local) await sbUpsert('tareas',{id:x.id,user_id:uid,espacio:x.space,titulo:x.titulo,estado:x.estado||'Sin hacer',prio:x.prio||'Media',fecha:x.fecha||null,descripcion:x.desc||'',creada:x.creada});
+    }
+    // NOTAS
+    if(n&&n.length){
+      const bs={};
+      n.forEach(x=>{if(!bs[x.espacio])bs[x.espacio]=[];bs[x.espacio].push({id:x.id,texto:x.texto,fecha:x.fecha});});
+      Object.entries(bs).forEach(([s,a])=>lsSave('ms2_'+s+'_notas',a));
+    }else{
+      const SPACES_IDS=['pers','sant','covi','tork'];
+      for(const sp of SPACES_IDS){const local=lsLoad('ms2_'+sp+'_notas');for(const x of local) await sbUpsert('notas',{id:x.id,user_id:uid,espacio:sp,texto:x.texto,fecha:x.fecha});}
+    }
     await flushQueue();
   }catch(e){console.warn('pull error',e);}
 }
@@ -378,8 +406,20 @@ function renderAlerts(){
 function buildGastos(){
   const gastos=getData('pers','gastos');
   const meses=[...new Set(gastos.map(g=>mesKey(g.fecha)))].sort().reverse();
+  const empresas=[
+    {id:'pers',label:'Personal',color:'#7c3aed',bg:'rgba(124,58,237,.15)'},
+    {id:'sant',label:'Santoni',color:'#0ea5e9',bg:'rgba(14,165,233,.15)'},
+    {id:'covi',label:'Covin',color:'#10b981',bg:'rgba(16,185,129,.15)'},
+    {id:'tork',label:'Tork',color:'#f59e0b',bg:'rgba(245,158,11,.15)'},
+  ];
   return`<div class="card">
     <div class="card-ttl">Registrar gasto</div>
+    <label class="lbl">Para</label>
+    <div class="chips" id="chips-emp" style="margin-bottom:12px">
+      ${empresas.map((e,i)=>`<div class="chip" data-id="${e.id}" onclick="selEmpresa('${e.id}')"
+        style="background:${i===0?e.bg:'rgba(255,255,255,.06)'};color:${i===0?e.color:'var(--t2)'};border-color:${i===0?e.color:'transparent'};${i===0?'box-shadow:0 0 0 2px '+e.color+'44':''}">${e.label}</div>`).join('')}
+    </div>
+    <input type="hidden" id="g-empresa" value="pers">
     <label class="lbl">Rubro</label>
     <div class="chips" id="chips-g">
       ${RUBROS_PERS.map(r=>`<div class="chip" data-id="${r.id}" onclick="selChip('${r.id}')"
@@ -397,10 +437,14 @@ function buildGastos(){
   </div>
   <div class="card">
     <div class="card-ttl">Historial</div>
-    <div class="frow">
+    <div class="frow" style="gap:8px;flex-wrap:wrap">
       <select id="f-mes" onchange="renderTablaGastos()">
         <option value="">Todos los meses</option>
         ${meses.map(m=>`<option value="${m}">${mesLbl(m)}</option>`).join('')}
+      </select>
+      <select id="f-emp" onchange="renderTablaGastos()">
+        <option value="">Todas las empresas</option>
+        ${empresas.map(e=>`<option value="${e.id}">${e.label}</option>`).join('')}
       </select>
     </div>
     <div id="tabla-g"></div>
@@ -416,15 +460,39 @@ function selChip(id){
   });
 }
 
+const EMPRESAS_MAP={
+  pers:{id:'pers',label:'Personal',color:'#7c3aed',bg:'rgba(124,58,237,.15)'},
+  sant:{id:'sant',label:'Santoni',color:'#0ea5e9',bg:'rgba(14,165,233,.15)'},
+  covi:{id:'covi',label:'Covin',color:'#10b981',bg:'rgba(16,185,129,.15)'},
+  tork:{id:'tork',label:'Tork',color:'#f59e0b',bg:'rgba(245,158,11,.15)'},
+};
+
+function selEmpresa(id){
+  document.getElementById('g-empresa').value=id;
+  document.querySelectorAll('#chips-emp .chip').forEach(c=>{
+    const e=EMPRESAS_MAP[c.dataset.id]||{color:'#888',bg:'rgba(255,255,255,.06)'};
+    if(c.dataset.id===id){
+      c.style.background=e.bg;c.style.color=e.color;
+      c.style.borderColor=e.color;c.style.boxShadow=`0 0 0 2px ${e.color}44`;
+    }else{
+      c.style.background='rgba(255,255,255,.06)';c.style.color='var(--t2)';
+      c.style.borderColor='transparent';c.style.boxShadow='';
+    }
+  });
+}
+
 function guardarGasto(){
   const fecha=document.getElementById('g-fecha').value;
   const importe=parseFloat(document.getElementById('g-imp').value);
   const rubro=document.getElementById('g-rubro').value;
   const desc=document.getElementById('g-desc').value.trim();
+  const empresa=document.getElementById('g-empresa')?.value||'pers';
   if(!fecha||!importe||importe<=0||!rubro){toast('Completá rubro, fecha e importe','red');return;}
+  const ng={id:uid(),fecha,importe,rubro,desc,empresa};
   const arr=getData('pers','gastos');
-  arr.push({id:uid(),fecha,importe,rubro,desc});
+  arr.push(ng);
   setData('pers','gastos',arr);
+  sbUpsert('gastos',{id:ng.id,user_id:sbUser?.id,fecha,importe,rubro,descripcion:desc,empresa});
   document.getElementById('g-imp').value='';
   document.getElementById('g-desc').value='';
   document.getElementById('g-rubro').value='';
@@ -433,30 +501,39 @@ function guardarGasto(){
     c.style.borderColor=r.bg;c.style.boxShadow='';
   });
   renderTablaGastos();
-  toast('✅ Gasto guardado','green');
+  const emp=EMPRESAS_MAP[empresa]||EMPRESAS_MAP.pers;
+  toast(`✅ Gasto guardado (${emp.label})`,'green');
 }
 
 function renderTablaGastos(){
   const mes=document.getElementById('f-mes')?.value||'';
+  const empFilter=document.getElementById('f-emp')?.value||'';
   const gastos=getData('pers','gastos');
   const rmap=Object.fromEntries(RUBROS_PERS.map(r=>[r.id,r]));
-  const data=gastos.filter(g=>!mes||mesKey(g.fecha)===mes).sort((a,b)=>b.fecha.localeCompare(a.fecha));
+  const data=gastos
+    .filter(g=>!mes||mesKey(g.fecha)===mes)
+    .filter(g=>!empFilter||(g.empresa||'pers')===empFilter)
+    .sort((a,b)=>b.fecha.localeCompare(a.fecha));
   const wrap=document.getElementById('tabla-g');if(!wrap)return;
   if(!data.length){wrap.innerHTML='<div class="empty">Sin gastos.</div>';return;}
   const total=data.reduce((s,g)=>s+g.importe,0);
   wrap.innerHTML=`<div style="overflow-x:auto"><table class="tbl">
-    <thead><tr><th>Fecha</th><th>Rubro</th><th>Descripción</th><th style="text-align:right">Importe</th><th></th></tr></thead>
+    <thead><tr><th>Fecha</th><th>Para</th><th>Rubro</th><th>Descripción</th><th style="text-align:right">Importe</th><th></th></tr></thead>
     <tbody>
-    ${data.map(g=>{const r=rmap[g.rubro]||{label:g.rubro,color:'#888',bg:'#eee'};return`<tr>
+    ${data.map(g=>{
+      const r=rmap[g.rubro]||{label:g.rubro,color:'#888',bg:'#eee'};
+      const emp=EMPRESAS_MAP[g.empresa||'pers']||EMPRESAS_MAP.pers;
+      return`<tr>
       <td style="font-size:13px;white-space:nowrap">${fmtD(g.fecha)}</td>
+      <td><span class="badge" style="background:${emp.bg};color:${emp.color}">${esc(emp.label)}</span></td>
       <td><span class="badge" style="background:${r.bg};color:${r.color}">${esc(r.label)}</span></td>
       <td style="color:var(--t2);font-size:13px">${esc(g.desc)||'—'}</td>
       <td style="text-align:right;font-weight:700;white-space:nowrap">${fmtM(g.importe)}</td>
       <td><button class="btn-xs" style="background:var(--red-bg);color:var(--red);border-color:var(--red)"
         onclick="delGasto('${g.id}')">✕</button></td>
-    </tr>`}).join('')}
+    </tr>`;}).join('')}
     </tbody>
-    <tfoot><tr class="tbl-tot"><td colspan="3">Total</td><td style="text-align:right">${fmtM(total)}</td><td></td></tr></tfoot>
+    <tfoot><tr class="tbl-tot"><td colspan="4">Total</td><td style="text-align:right">${fmtM(total)}</td><td></td></tr></tfoot>
   </table></div>`;
 }
 
