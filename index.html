@@ -62,6 +62,120 @@ function agregarRubro(){
   renderRubrosList();
   toast('✅ Rubro agregado','green');
 }
+
+// ══════════════════════════════════════════════
+// CALENDARIO
+// ══════════════════════════════════════════════
+let _calYear=new Date().getFullYear(), _calMonth=new Date().getMonth(), _calSel=null;
+const MESES_ES=['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
+const DIAS_ES=['Lun','Mar','Mié','Jue','Vie','Sáb','Dom'];
+
+function openCalendario(){
+  _calYear=new Date().getFullYear();
+  _calMonth=new Date().getMonth();
+  _calSel=isoHoy();
+  document.getElementById('cal-modal').style.display='flex';
+  renderCal();
+}
+function closeCalendario(){
+  document.getElementById('cal-modal').style.display='none';
+}
+function calPrev(){if(_calMonth===0){_calMonth=11;_calYear--;}else _calMonth--;_calSel=null;renderCal();}
+function calNext(){if(_calMonth===11){_calMonth=0;_calYear++;}else _calMonth++;_calSel=null;renderCal();}
+
+function getCalEventos(){
+  // Recopilar todos los eventos con fecha del mes
+  const eventos={};
+  function addEv(fecha,tipo,label,color,sp){
+    if(!fecha)return;
+    if(!eventos[fecha])eventos[fecha]=[];
+    eventos[fecha].push({tipo,label,color,sp});
+  }
+  // Vencimientos de todos los espacios
+  SPACES.forEach(sp=>{
+    getData(sp.id,'vencs').forEach(v=>{
+      if(!v.fecha||v.pagado)return;
+      const d=diasHasta(v.fecha);
+      const color=d<0?'#e24b4a':d<=3?'#f59e0b':'#7c3aed';
+      addEv(v.fecha,'venc','📋 '+v.nombre,color,sp.name);
+    });
+  });
+  // Tareas con fecha
+  getTareas().filter(t=>t.fecha&&t.estado!=='Finalizado').forEach(t=>{
+    const d=diasHasta(t.fecha);
+    const color=d<0?'#e24b4a':d<=1?'#f59e0b':'#2878d4';
+    const sp=SMAP[t.space]||SPACES[0];
+    addEv(t.fecha,'tarea','✅ '+t.titulo,color,sp.name);
+  });
+  return eventos;
+}
+
+function renderCal(){
+  const hoy=isoHoy();
+  const titulo=MESES_ES[_calMonth]+' '+_calYear;
+  document.getElementById('cal-titulo').textContent=titulo;
+
+  const eventos=getCalEventos();
+  const primer=new Date(_calYear,_calMonth,1);
+  const ultimo=new Date(_calYear,_calMonth+1,0);
+  // Día de semana del primero (lunes=0)
+  let startDow=(primer.getDay()+6)%7;
+  const totalCeldas=startDow+ultimo.getDate();
+  const filas=Math.ceil(totalCeldas/7);
+
+  let html='';
+  for(let i=0;i<filas*7;i++){
+    const dayNum=i-startDow+1;
+    if(dayNum<1||dayNum>ultimo.getDate()){
+      html+=`<div style="padding:4px"></div>`;
+      continue;
+    }
+    const iso=_calYear+'-'+(String(_calMonth+1).padStart(2,'0'))+'-'+(String(dayNum).padStart(2,'0'));
+    const evs=eventos[iso]||[];
+    const isHoy=iso===hoy;
+    const isSel=iso===_calSel;
+    const hasBad=evs.some(e=>e.color==='#e24b4a');
+    const hasAmber=evs.some(e=>e.color==='#f59e0b');
+    const bg=isSel?'rgba(124,58,237,.4)':isHoy?'rgba(124,58,237,.15)':'rgba(255,255,255,.04)';
+    const border=isSel?'1.5px solid #7c3aed':isHoy?'1.5px solid rgba(124,58,237,.5)':'1.5px solid transparent';
+    const dots=evs.length?`<div style="display:flex;gap:2px;justify-content:center;flex-wrap:wrap;margin-top:2px">${[...new Set(evs.map(e=>e.color))].slice(0,3).map(col=>`<div style="width:5px;height:5px;border-radius:50%;background:${col}"></div>`).join('')}</div>`:'';
+    html+=`<div onclick="calSelDay('${iso}')" style="background:${bg};border:${border};border-radius:8px;padding:5px 2px;text-align:center;cursor:pointer;min-height:42px">
+      <div style="font-size:12px;font-weight:${isHoy?'700':'400'};color:${isHoy?'#a78bfa':'rgba(255,255,255,.8)'}">${dayNum}</div>
+      ${dots}
+    </div>`;
+  }
+  document.getElementById('cal-grid').innerHTML=html;
+
+  if(_calSel) renderCalDetalle(_calSel,eventos);
+  else document.getElementById('cal-detalle').innerHTML='';
+}
+
+function calSelDay(iso){
+  _calSel=iso;
+  renderCal();
+}
+
+function renderCalDetalle(iso,eventos){
+  const evs=(eventos||getCalEventos())[iso]||[];
+  const [y,m,d]=iso.split('-');
+  const label=parseInt(d)+' de '+MESES_ES[parseInt(m)-1]+' '+y;
+  const det=document.getElementById('cal-detalle');
+  if(!evs.length){
+    det.innerHTML=`<div style="padding:12px;background:rgba(255,255,255,.05);border-radius:10px;text-align:center;color:rgba(255,255,255,.4);font-size:13px">${label} — sin eventos</div>`;
+    return;
+  }
+  det.innerHTML=`<div style="padding:12px;background:rgba(255,255,255,.05);border-radius:10px">
+    <div style="font-size:12px;font-weight:700;color:rgba(255,255,255,.5);margin-bottom:8px">${label.toUpperCase()}</div>
+    ${evs.map(e=>`<div style="display:flex;align-items:flex-start;gap:8px;padding:7px 0;border-bottom:1px solid rgba(255,255,255,.06)">
+      <div style="width:8px;height:8px;border-radius:50%;background:${e.color};margin-top:4px;flex-shrink:0"></div>
+      <div>
+        <div style="font-size:13.5px;color:#fff;font-weight:500">${esc(e.label)}</div>
+        <div style="font-size:11px;color:rgba(255,255,255,.4);margin-top:2px">${esc(e.sp)}</div>
+      </div>
+    </div>`).join('')}
+  </div>`;
+}
+
 </script>
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -229,7 +343,7 @@ textarea{resize:vertical;min-height:60px}
   <div class="top-bar">
     <div class="top-row">
       <div><div class="app-name">📱 Mi Sistema</div><div class="top-date" id="top-date"></div></div>
-      <div style="display:flex;gap:6px"><button onclick="syncManual()" id="sync-btn" title="Sincronizar" style="background:rgba(255,255,255,.1);border:none;border-radius:8px;padding:6px 10px;color:rgba(255,255,255,.65);font-size:12px;font-weight:600;cursor:pointer">☁️</button><button onclick="goSpace('global')" style="background:rgba(255,255,255,.1);border:none;border-radius:8px;padding:6px 10px;color:rgba(255,255,255,.65);font-size:12px;font-weight:600;cursor:pointer">🌐 Global</button><button onclick="doLogout()" title="Cerrar sesión" style="background:rgba(255,255,255,.1);border:none;border-radius:8px;padding:6px 10px;color:rgba(255,255,255,.65);font-size:12px;font-weight:600;cursor:pointer">⏏️</button></div>
+      <div style="display:flex;gap:6px"><button onclick="syncManual()" id="sync-btn" title="Sincronizar" style="background:rgba(255,255,255,.1);border:none;border-radius:8px;padding:6px 10px;color:rgba(255,255,255,.65);font-size:12px;font-weight:600;cursor:pointer">☁️</button><button onclick="goSpace('global')" style="background:rgba(255,255,255,.1);border:none;border-radius:8px;padding:6px 10px;color:rgba(255,255,255,.65);font-size:12px;font-weight:600;cursor:pointer">🌐 Global</button><button onclick="openCalendario()" style="background:rgba(255,255,255,.1);border:none;border-radius:8px;padding:6px 10px;color:rgba(255,255,255,.65);font-size:12px;font-weight:600;cursor:pointer">📅</button><button onclick="doLogout()" title="Cerrar sesión" style="background:rgba(255,255,255,.1);border:none;border-radius:8px;padding:6px 10px;color:rgba(255,255,255,.65);font-size:12px;font-weight:600;cursor:pointer">⏏️</button></div>
     </div>
     <div class="space-tabs" id="space-tabs"></div>
   </div>
@@ -278,41 +392,67 @@ async function pullFromSupabase(){
       sb.from('tareas').select('*').eq('user_id',uid),
       sb.from('notas').select('*').eq('user_id',uid),
     ]);
-    // GASTOS: si Supabase tiene datos, usar esos; si no, subir los locales
-    if(g&&g.length){
-      lsSave('ms2_pers_gastos',g.map(x=>({id:x.id,fecha:x.fecha,importe:x.importe,rubro:x.rubro,desc:x.descripcion||'',empresa:x.empresa||'pers'})));
-    }else{
-      const local=lsLoad('ms2_pers_gastos');
-      for(const x of local) await sbUpsert('gastos',{id:x.id,user_id:uid,fecha:x.fecha,importe:x.importe,rubro:x.rubro,descripcion:x.desc||'',empresa:x.empresa||'pers'});
+    // GASTOS: merge Supabase + local (nunca pierde datos locales)
+    {
+      const sbG=g||[];
+      const localG=lsLoad('ms2_pers_gastos');
+      const sbIds=new Set(sbG.map(x=>x.id));
+      const localOnly=localG.filter(x=>!sbIds.has(x.id));
+      // Subir a Supabase los que solo están locales
+      for(const x of localOnly) sbUpsert('gastos',{id:x.id,user_id:uid,fecha:x.fecha,importe:x.importe,rubro:x.rubro,descripcion:x.desc||'',empresa:x.empresa||'pers'});
+      // Guardar merge en localStorage
+      const merged=[...sbG.map(x=>({id:x.id,fecha:x.fecha,importe:x.importe,rubro:x.rubro,desc:x.descripcion||'',empresa:x.empresa||'pers'})),...localOnly];
+      lsSave('ms2_pers_gastos',merged);
     }
-    // VENCIMIENTOS
-    if(v&&v.length){
-      const bs={};
-      v.forEach(x=>{if(!bs[x.espacio])bs[x.espacio]=[];bs[x.espacio].push({id:x.id,nombre:x.nombre,cat:x.cat||'',fecha:x.fecha,importe:x.importe,repetir:x.repetir||0,alerta:x.alerta||7,nota:x.nota||'',pagado:x.pagado||false});});
-      Object.entries(bs).forEach(([s,a])=>lsSave('ms2_'+s+'_vencs',a));
-    }else{
+    // VENCIMIENTOS: merge
+    {
+      const sbV=v||[];
+      const sbIds=new Set(sbV.map(x=>x.id));
       const SPACES_IDS=['pers','sant','covi','tork'];
-      for(const sp of SPACES_IDS){const local=lsLoad('ms2_'+sp+'_vencs');for(const x of local) await sbUpsert('vencimientos',{id:x.id,user_id:uid,espacio:sp,nombre:x.nombre,cat:x.cat||'',fecha:x.fecha,importe:x.importe||null,repetir:parseInt(x.repetir)||0,alerta:parseInt(x.alerta)||7,nota:x.nota||'',pagado:x.pagado||false});}
-    }
-    // TAREAS
-    if(t&&t.length){
-      lsSave('ms2_tareas',t.map(x=>({id:x.id,titulo:x.titulo,space:x.espacio,estado:x.estado||'Sin hacer',prio:x.prio||'Media',fecha:x.fecha||'',desc:x.descripcion||'',creada:x.creada||new Date().toISOString().split('T')[0]})));
-    }else{
-      const local=lsLoad('ms2_tareas');
-      for(const x of local) await sbUpsert('tareas',{id:x.id,user_id:uid,espacio:x.space,titulo:x.titulo,estado:x.estado||'Sin hacer',prio:x.prio||'Media',fecha:x.fecha||null,descripcion:x.desc||'',creada:x.creada});
-    }
-    // NOTAS
-    if(n&&n.length){
+      for(const sp of SPACES_IDS){
+        const local=lsLoad('ms2_'+sp+'_vencs');
+        const localOnly=local.filter(x=>!sbIds.has(x.id));
+        for(const x of localOnly) sbUpsert('vencimientos',{id:x.id,user_id:uid,espacio:sp,nombre:x.nombre,cat:x.cat||'',fecha:x.fecha,importe:x.importe||null,repetir:parseInt(x.repetir)||0,alerta:parseInt(x.alerta)||7,nota:x.nota||'',pagado:x.pagado||false});
+      }
       const bs={};
-      n.forEach(x=>{if(!bs[x.espacio])bs[x.espacio]=[];bs[x.espacio].push({id:x.id,texto:x.texto,fecha:x.fecha});});
-      Object.entries(bs).forEach(([s,a])=>lsSave('ms2_'+s+'_notas',a));
-    }else{
+      sbV.forEach(x=>{if(!bs[x.espacio])bs[x.espacio]=[];bs[x.espacio].push({id:x.id,nombre:x.nombre,cat:x.cat||'',fecha:x.fecha,importe:x.importe,repetir:x.repetir||0,alerta:x.alerta||7,nota:x.nota||'',pagado:x.pagado||false});});
+      SPACES_IDS.forEach(sp=>{
+        const local=lsLoad('ms2_'+sp+'_vencs');
+        const sbIds2=new Set((bs[sp]||[]).map(x=>x.id));
+        const merged=[...(bs[sp]||[]),...local.filter(x=>!sbIds2.has(x.id))];
+        if(merged.length||bs[sp]) lsSave('ms2_'+sp+'_vencs',merged);
+      });
+    }
+    // TAREAS: merge
+    {
+      const sbT=t||[];
+      const localT=lsLoad('ms2_tareas');
+      const sbIds=new Set(sbT.map(x=>x.id));
+      const localOnly=localT.filter(x=>!sbIds.has(x.id));
+      for(const x of localOnly) sbUpsert('tareas',{id:x.id,user_id:uid,espacio:x.space,titulo:x.titulo,estado:x.estado||'Sin hacer',prio:x.prio||'Media',fecha:x.fecha||null,descripcion:x.desc||'',creada:x.creada});
+      const merged=[...sbT.map(x=>({id:x.id,titulo:x.titulo,space:x.espacio,estado:x.estado||'Sin hacer',prio:x.prio||'Media',fecha:x.fecha||'',desc:x.descripcion||'',creada:x.creada||new Date().toISOString().split('T')[0]})),...localOnly];
+      lsSave('ms2_tareas',merged);
+    }
+    // NOTAS: merge
+    {
+      const sbN=n||[];
+      const sbIds=new Set(sbN.map(x=>x.id));
       const SPACES_IDS=['pers','sant','covi','tork'];
-      for(const sp of SPACES_IDS){const local=lsLoad('ms2_'+sp+'_notas');for(const x of local) await sbUpsert('notas',{id:x.id,user_id:uid,espacio:sp,texto:x.texto,fecha:x.fecha});}
+      const bs={};
+      sbN.forEach(x=>{if(!bs[x.espacio])bs[x.espacio]=[];bs[x.espacio].push({id:x.id,texto:x.texto,fecha:x.fecha});});
+      SPACES_IDS.forEach(sp=>{
+        const local=lsLoad('ms2_'+sp+'_notas');
+        const sbIds2=new Set((bs[sp]||[]).map(x=>x.id));
+        const localOnly=local.filter(x=>!sbIds2.has(x.id));
+        for(const x of localOnly) sbUpsert('notas',{id:x.id,user_id:uid,espacio:sp,texto:x.texto,fecha:x.fecha});
+        const merged=[...(bs[sp]||[]),...localOnly];
+        lsSave('ms2_'+sp+'_notas',merged);
+      });
     }
     await flushQueue();
   }catch(e){console.warn('pull error',e);}
 }
+
 async function sbUpsert(table,row){if(!sbUser)return;if(!isOnline){addToQueue('upsert',table,row);return;}try{await sb.from(table).upsert(row);}catch(e){addToQueue('upsert',table,row);}}
 async function sbDel(table,id){if(!sbUser)return;if(!isOnline){addToQueue('delete',table,{id});return;}try{await sb.from(table).delete().eq('id',id);}catch(e){addToQueue('delete',table,{id});}}
 function addToQueue(op,table,payload){const q=lsLoad('ms2_sync_queue');q.push({op,table,payload,ts:Date.now()});lsSave('ms2_sync_queue',q);}
@@ -380,6 +520,7 @@ const PRIO_C = {Alta:'#d63c3c',Media:'#c07810',Baja:'#2878d4'};
 // ══════════════════════════════════════════════
 // STORAGE
 // ══════════════════════════════════════════════
+const esc=s=>(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 const lsLoad = k=>{try{return JSON.parse(localStorage.getItem(k))||[];}catch{return [];}};
 const lsSave = (k,v)=>localStorage.setItem(k,JSON.stringify(v));
 const getData = (sp,type)=>lsLoad(`ms2_${sp}_${type}`);
@@ -1015,8 +1156,41 @@ function renderGlobal(){
   const area=document.getElementById('content');
   const mesActual=isoHoy().slice(0,7);
   const tareas=getTareas();
-  let html=`<div style="font-size:16px;font-weight:700;margin-bottom:2px">🌐 Vista global</div>
-    <div style="font-size:12px;color:var(--t3);margin-bottom:14px">${mesLbl(mesActual)}</div>`;
+  let html=`<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
+    <div>
+      <div style="font-size:16px;font-weight:700">🌐 Vista global</div>
+      <div style="font-size:12px;color:var(--t3)">${mesLbl(mesActual)}</div>
+    </div>
+    <button onclick="openCalendario()" style="background:rgba(124,58,237,.15);border:1.5px solid rgba(124,58,237,.3);border-radius:10px;padding:8px 14px;color:#a78bfa;font-size:13px;font-weight:600;cursor:pointer">📅 Calendario</button>
+  </div>
+  <div class="mgrid" style="margin-bottom:14px">
+    \${(()=>{
+      const allVencs=SPACES.flatMap(sp=>getData(sp.id,'vencs').filter(v=>!v.pagado));
+      const vUrgentes=allVencs.filter(v=>diasHasta(v.fecha)>=0&&diasHasta(v.fecha)<=7).length;
+      const vVencidos=allVencs.filter(v=>diasHasta(v.fecha)<0).length;
+      const tPend=getTareas().filter(t=>t.estado!=='Finalizado').length;
+      const tHoy=getTareas().filter(t=>t.fecha===isoHoy()&&t.estado!=='Finalizado').length;
+      const totalMes=getData('pers','gastos').filter(g=>mesKey(g.fecha)===mesActual).reduce((s,g)=>s+g.importe,0);
+      return \`
+        <div class="met" style="\${vVencidos>0?'border:1.5px solid rgba(226,75,74,.3)':''}">
+          <div class="met-lbl">Vencidos</div>
+          <div class="met-val" style="color:\${vVencidos>0?'var(--red)':'var(--sc)'}">\${vVencidos}</div>
+        </div>
+        <div class="met" style="\${vUrgentes>0?'border:1.5px solid rgba(245,158,11,.3)':''}">
+          <div class="met-lbl">Próximos 7d</div>
+          <div class="met-val" style="color:\${vUrgentes>0?'var(--amber)':'var(--sc)'}">\${vUrgentes}</div>
+        </div>
+        <div class="met">
+          <div class="met-lbl">Tareas pend.</div>
+          <div class="met-val">\${tPend}</div>
+        </div>
+        <div class="met">
+          <div class="met-lbl">Gastos mes</div>
+          <div class="met-val" style="font-size:14px">\${fmtM(totalMes)}</div>
+        </div>
+      \`;
+    })()}
+  </div>`;
 
   // Card resumen tareas
   html+=`<div class="card">
@@ -1098,5 +1272,21 @@ function toast(msg,tipo='red'){
   setTimeout(()=>el.remove(),2700);
 }
 </script>
+
+<div id="cal-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:8500;align-items:flex-start;justify-content:center;padding:16px;overflow-y:auto">
+  <div style="background:#1a1916;border-radius:16px;width:100%;max-width:520px;padding:20px;margin:auto">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+      <button onclick="calPrev()" style="background:rgba(255,255,255,.1);border:none;border-radius:8px;padding:7px 13px;color:#fff;font-size:16px;cursor:pointer">‹</button>
+      <div id="cal-titulo" style="font-weight:700;color:#fff;font-size:16px"></div>
+      <button onclick="calNext()" style="background:rgba(255,255,255,.1);border:none;border-radius:8px;padding:7px 13px;color:#fff;font-size:16px;cursor:pointer">›</button>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:2px;margin-bottom:4px">
+      ${['L','M','X','J','V','S','D'].map(d=>`<div style="text-align:center;font-size:11px;font-weight:600;color:rgba(255,255,255,.4);padding:4px 0">${d}</div>`).join('')}
+    </div>
+    <div id="cal-grid" style="display:grid;grid-template-columns:repeat(7,1fr);gap:2px"></div>
+    <div id="cal-detalle" style="margin-top:14px"></div>
+    <button onclick="closeCalendario()" style="margin-top:14px;width:100%;padding:10px;background:rgba(255,255,255,.08);border:none;border-radius:8px;color:rgba(255,255,255,.7);font-size:14px;cursor:pointer">Cerrar</button>
+  </div>
+</div>
 </body>
 </html>
