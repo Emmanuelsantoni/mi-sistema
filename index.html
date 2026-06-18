@@ -314,7 +314,7 @@ function selEmpresa(id){
 // ═══════════════════════════════════════════════════════
 // RUBROS EDITOR
 // ═══════════════════════════════════════════════════════
-let _rubroColor=PALETA[0];
+let _rubroColor=null;
 function openRubrosModal(){_rubroColor=PALETA[0];renderRubrosList();renderPaleta();document.getElementById('rubros-modal').style.display='flex';}
 function closeRubrosModal(){document.getElementById('rubros-modal').style.display='none';RUBROS_PERS=getRubros();renderContent();}
 function renderRubrosList(){
