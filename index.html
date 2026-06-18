@@ -252,6 +252,10 @@ async function doLogin(){
 }
 async function doLogout(){await sb.auth.signOut();sbUser=null;showLogin();}
 
+// Tombstones: track deleted IDs so sync doesn't restore them
+function addTombstone(id){var s=JSON.parse(localStorage.getItem('ms2_deleted')||'{}');s[id]=Date.now();localStorage.setItem('ms2_deleted',JSON.stringify(s));}
+function getTombstones(){return JSON.parse(localStorage.getItem('ms2_deleted')||'{}');}
+
 async function pullFromSupabase(){
   if(!sbUser||!isOnline)return;
   try{
@@ -282,7 +286,7 @@ async function pullFromSupabase(){
           merged.push({id:remote.id,fecha:remote.fecha,importe:remote.importe,rubro:remote.rubro,desc:remote.descripcion||'',empresa:remote.empresa||'pers',_ts:rts(remote)});
         }
       }
-      for(const remote of sbG){if(!locMap[remote.id])merged.push({id:remote.id,fecha:remote.fecha,importe:remote.importe,rubro:remote.rubro,desc:remote.descripcion||'',empresa:remote.empresa||'pers',_ts:rts(remote)});}
+      const stones=getTombstones();for(const remote of sbG){if(!locMap[remote.id]){if(stones[remote.id]&&stones[remote.id]>=rts(remote)){sbDel('gastos',remote.id);}else{merged.push({id:remote.id,fecha:remote.fecha,importe:remote.importe,rubro:remote.rubro,desc:remote.descripcion||'',empresa:remote.empresa||'pers',_ts:rts(remote)});}}}
       lsSave('ms2_pers_gastos',merged);
     }
     // VENCIMIENTOS — last write wins
@@ -303,7 +307,7 @@ async function pullFromSupabase(){
             merged.push({id:remote.id,nombre:remote.nombre,cat:remote.cat||'',fecha:remote.fecha,importe:remote.importe,repetir:remote.repetir||0,alerta:remote.alerta||7,nota:remote.nota||'',pagado:remote.pagado||false,_ts:rts(remote)});
           }
         }
-        for(const remote of sbSp){if(!locMap[remote.id])merged.push({id:remote.id,nombre:remote.nombre,cat:remote.cat||'',fecha:remote.fecha,importe:remote.importe,repetir:remote.repetir||0,alerta:remote.alerta||7,nota:remote.nota||'',pagado:remote.pagado||false,_ts:rts(remote)});}
+        const stonesV=getTombstones();for(const remote of sbSp){if(!locMap[remote.id]){if(stonesV[remote.id]&&stonesV[remote.id]>=rts(remote)){sbDel('vencimientos',remote.id);}else{merged.push({id:remote.id,nombre:remote.nombre,cat:remote.cat||'',fecha:remote.fecha,importe:remote.importe,repetir:remote.repetir||0,alerta:remote.alerta||7,nota:remote.nota||'',pagado:remote.pagado||false,_ts:rts(remote)});}}}
         lsSave('ms2_'+sp+'_vencs',merged);
       });
     }
@@ -323,7 +327,7 @@ async function pullFromSupabase(){
           merged.push({id:remote.id,titulo:remote.titulo,space:remote.espacio,estado:remote.estado||'Sin hacer',prio:remote.prio||'Media',fecha:remote.fecha||'',desc:remote.descripcion||'',creada:remote.creada||'',_ts:rts(remote)});
         }
       }
-      for(const remote of sbT){if(!locMap[remote.id])merged.push({id:remote.id,titulo:remote.titulo,space:remote.espacio,estado:remote.estado||'Sin hacer',prio:remote.prio||'Media',fecha:remote.fecha||'',desc:remote.descripcion||'',creada:remote.creada||'',_ts:rts(remote)});}
+      const stonesT=getTombstones();for(const remote of sbT){if(!locMap[remote.id]){if(stonesT[remote.id]&&stonesT[remote.id]>=rts(remote)){sbDel('tareas',remote.id);}else{merged.push({id:remote.id,titulo:remote.titulo,space:remote.espacio,estado:remote.estado||'Sin hacer',prio:remote.prio||'Media',fecha:remote.fecha||'',desc:remote.descripcion||'',creada:remote.creada||'',_ts:rts(remote)});}}}
       lsSave('ms2_tareas',merged);
     }
     // NOTAS — last write wins
@@ -344,7 +348,7 @@ async function pullFromSupabase(){
             merged.push({id:remote.id,texto:remote.texto,fecha:remote.fecha,_ts:rts(remote)});
           }
         }
-        for(const remote of sbSp){if(!locMap[remote.id])merged.push({id:remote.id,texto:remote.texto,fecha:remote.fecha,_ts:rts(remote)});}
+        const stonesN=getTombstones();for(const remote of sbSp){if(!locMap[remote.id]){if(stonesN[remote.id]&&stonesN[remote.id]>=rts(remote)){sbDel('notas',remote.id);}else{merged.push({id:remote.id,texto:remote.texto,fecha:remote.fecha,_ts:rts(remote)});}}}
         lsSave('ms2_'+sp+'_notas',merged);
       });
     }
@@ -892,7 +896,7 @@ function renderTablaGastos(){
 
 function delGasto(id){
   setData('pers','gastos',getData('pers','gastos').filter(g=>g.id!==id));
-  sbDel('gastos',id);
+  sbDel('gastos',id);addTombstone(id);
   renderTablaGastos();
 }
 
@@ -985,6 +989,7 @@ function pagarVenc(id){
 }
 function delVenc(id){
   setData(curSpace,'vencs',getData(curSpace,'vencs').filter(v=>v.id!==id));
+  sbDel('vencimientos',id);addTombstone(id);
   renderContent();renderAlerts();
 }
 
@@ -1106,7 +1111,7 @@ function editTarea(id,field,val){
 }
 function delTarea(id){
   setTareas(getTareas().filter(t=>t.id!==id));
-  closeModal();
+  sbDel('tareas',id);addTombstone(id);closeModal();
   if(curMod==='tareas')renderContent();
   renderAlerts();
 }
@@ -1207,6 +1212,7 @@ function actualizarNota(id){
 }
 function delNota(id){
   setData(curSpace,'notas',getData(curSpace,'notas').filter(n=>n.id!==id));
+  sbDel('notas',id);addTombstone(id);
   renderContent();
 }
 
