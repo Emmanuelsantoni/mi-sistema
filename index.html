@@ -473,6 +473,39 @@ let kanbanFilter='all';
 // ══════════════════════════════════════════════
 // INIT
 // ══════════════════════════════════════════════
+
+function getDashboardMetrics(){
+  const mesActual=mesKey(isoHoy());
+  const allV=SPACES.flatMap(sp=>getData(sp.id,'vencs').filter(v=>!v.pagado));
+  const vVenc=allV.filter(v=>diasHasta(v.fecha)<0).length;
+  const vUrg=allV.filter(v=>diasHasta(v.fecha)>=0&&diasHasta(v.fecha)<=7).length;
+  const tPend=getTareas().filter(t=>t.estado!=='Finalizado').length;
+  const totalMes=getData('pers','gastos').filter(g=>mesKey(g.fecha)===mesActual).reduce((s,g)=>s+g.importe,0);
+  return '<div class="mgrid" style="margin-bottom:14px">'
+    +'<div class="met" style="'+(vVenc>0?'border:1.5px solid rgba(226,75,74,.3)':'')+'">'
+    +'<div class="met-lbl">Vencidos</div><div class="met-val" style="color:'+(vVenc>0?'var(--red)':'var(--sc)')+'">'+(vVenc)+'</div></div>'
+    +'<div class="met" style="'+(vUrg>0?'border:1.5px solid rgba(245,158,11,.3)':'')+'">'
+    +'<div class="met-lbl">Próximos 7d</div><div class="met-val" style="color:'+(vUrg>0?'var(--amber)':'var(--sc)')+'">'+(vUrg)+'</div></div>'
+    +'<div class="met"><div class="met-lbl">Tareas pend.</div><div class="met-val">'+(tPend)+'</div></div>'
+    +'<div class="met"><div class="met-lbl">Gastos mes</div><div class="met-val" style="font-size:14px">'+fmtM(totalMes)+'</div></div>'
+    +'</div>';
+}
+function renderUltimosGastos(){
+  RUBROS_PERS=getRubros();
+  const gastos=getData('pers','gastos').sort((a,b)=>b.fecha.localeCompare(a.fecha)).slice(0,3);
+  const rmap=Object.fromEntries(RUBROS_PERS.map(r=>[r.id,r]));
+  const el=document.getElementById('ultimos-g');if(!el)return;
+  if(!gastos.length){el.innerHTML='<div class="empty">Sin gastos aún.</div>';return;}
+  el.innerHTML=gastos.map(g=>{
+    const r=rmap[g.rubro]||{label:g.rubro,color:'#888',bg:'#eee'};
+    const emp=EMPRESAS_MAP[g.empresa||'pers']||EMPRESAS_MAP.pers;
+    return '<div style="display:flex;align-items:center;gap:10px;padding:9px 0;border-bottom:1px solid var(--border)">'
+      +'<div style="flex:1"><span class="badge" style="background:'+r.bg+';color:'+r.color+'">'+esc(r.label)+'</span>'
+      +(g.desc?'<span style="font-size:12px;color:var(--t2);margin-left:6px">'+esc(g.desc)+'</span>':'')+'</div>'
+      +'<div style="text-align:right"><div style="font-weight:700;font-size:14px">'+fmtM(g.importe)+'</div>'
+      +'<div style="font-size:11px;color:var(--t3)">'+fmtD(g.fecha)+'</div></div></div>';
+  }).join('');
+}
 window.onload=()=>{ initAuth(); };
 
 function setCSSVars(spId){
@@ -724,6 +757,7 @@ function buildGastos(){
     </div>
     <button class="btn-p" onclick="guardarGasto()">➕ Agregar gasto</button>
   </div>
+  <div class="card"><div style="display:flex;justify-content:space-between;align-items:center"><div class="card-ttl">Últimos gastos</div><span style="font-size:11px;color:var(--t3)">Personal · últimos 3</span></div><div id="ultimos-g"></div></div>
   <div class="card">
     <div class="card-ttl">Historial</div>
     <div class="frow" style="gap:8px;flex-wrap:wrap">
@@ -763,7 +797,7 @@ function guardarGasto(){
   document.getElementById('g-desc').value='';
   document.getElementById('g-rubro').value='';
   document.querySelectorAll('#chips-g .chip').forEach(c=>{const r=RUBROS_PERS.find(x=>x.id===c.dataset.id)||{bg:'#eee'};c.style.borderColor=r.bg;c.style.boxShadow='';});
-  renderTablaGastos();
+  renderTablaGastos();renderUltimosGastos();
   const emp=EMPRESAS_MAP[empresa]||EMPRESAS_MAP.pers;
   toast('✅ Gasto guardado ('+emp.label+')','green');
 }
@@ -1178,12 +1212,7 @@ function renderGlobal(){
   const area=document.getElementById('content');
   const mesActual=isoHoy().slice(0,7);
   const tareas=getTareas();
-  let html=`<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
-    <div><div style="font-size:16px;font-weight:700">🌐 Vista global</div>
-    <div style="font-size:12px;color:var(--t3)">${mesLbl(mesActual)}</div></div>
-    <button onclick="openCalendario()" style="background:rgba(124,58,237,.15);border:1.5px solid rgba(124,58,237,.3);border-radius:10px;padding:8px 14px;color:#a78bfa;font-size:13px;font-weight:600;cursor:pointer">📅 Calendario</button>
-  </div>
-  \${(()=>{const allV=SPACES.flatMap(sp=>getData(sp.id,'vencs').filter(v=>!v.pagado));const vVenc=allV.filter(v=>diasHasta(v.fecha)<0).length;const vUrg=allV.filter(v=>diasHasta(v.fecha)>=0&&diasHasta(v.fecha)<=7).length;const tPend=getTareas().filter(t=>t.estado!=='Finalizado').length;const totalMes=getData('pers','gastos').filter(g=>mesKey(g.fecha)===mesActual).reduce((s,g)=>s+g.importe,0);return '<div class="mgrid" style="margin-bottom:14px"><div class="met" style="'+(vVenc>0?'border:1.5px solid rgba(226,75,74,.3)':'')+'"><div class="met-lbl">Vencidos</div><div class="met-val" style="color:'+(vVenc>0?'var(--red)':'var(--sc)')+'">'+vVenc+'</div></div><div class="met" style="'+(vUrg>0?'border:1.5px solid rgba(245,158,11,.3)':'')+'"><div class="met-lbl">Próximos 7d</div><div class="met-val" style="color:'+(vUrg>0?'var(--amber)':'var(--sc)')+'">'+vUrg+'</div></div><div class="met"><div class="met-lbl">Tareas pend.</div><div class="met-val">'+tPend+'</div></div><div class="met"><div class="met-lbl">Gastos mes</div><div class="met-val" style="font-size:14px">'+fmtM(totalMes)+'</div></div></div>';})()}`;
+  let html=`<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px"><div><div style="font-size:16px;font-weight:700">🌐 Vista global</div><div style="font-size:12px;color:var(--t3)">${mesLbl(mesActual)}</div></div><button onclick="openCalendario()" style="background:rgba(124,58,237,.15);border:1.5px solid rgba(124,58,237,.3);border-radius:10px;padding:8px 14px;color:#a78bfa;font-size:13px;font-weight:600;cursor:pointer">📅 Calendario</button></div>${getDashboardMetrics()}`;;
 
   // Card resumen tareas
   html+=`<div class="card">
