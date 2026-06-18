@@ -263,42 +263,101 @@ async function pullFromSupabase(){
       sb.from('tareas').select('*').eq('user_id',uid),
       sb.from('notas').select('*').eq('user_id',uid),
     ]);
-    // GASTOS merge
-    {const sbG=g||[];const localG=lsLoad('ms2_pers_gastos');
-     const sbIds=new Set(sbG.map(x=>x.id));
-     const localGFixed=localG.map(x=>x.id?x:{...x,id:'lg_'+Math.random().toString(36).slice(2)});
-     lsSave('ms2_pers_gastos',localGFixed);
-     const lo=localGFixed.filter(x=>!sbIds.has(x.id));
-     for(const x of lo) sbUpsert('gastos',{id:x.id,user_id:uid,fecha:x.fecha,importe:x.importe,rubro:x.rubro,descripcion:x.desc||'',empresa:x.empresa||'pers'});
-     lsSave('ms2_pers_gastos',[...sbG.map(x=>({id:x.id,fecha:x.fecha,importe:x.importe,rubro:x.rubro,desc:x.descripcion||'',empresa:x.empresa||'pers'})),...lo]);}
-    // VENCIMIENTOS merge
-    {const sbV=v||[];const sbIds=new Set(sbV.map(x=>x.id));
-     const bs={};sbV.forEach(x=>{if(!bs[x.espacio])bs[x.espacio]=[];bs[x.espacio].push({id:x.id,nombre:x.nombre,cat:x.cat||'',fecha:x.fecha,importe:x.importe,repetir:x.repetir||0,alerta:x.alerta||7,nota:x.nota||'',pagado:x.pagado||false});});
-     SIDS.forEach(sp=>{const loc=lsLoad('ms2_'+sp+'_vencs');const locF=loc.map(x=>x.id?x:{...x,id:'lv_'+Math.random().toString(36).slice(2)});lsSave('ms2_'+sp+'_vencs',locF);const lo=locF.filter(x=>!sbIds.has(x.id));
-       for(const x of lo) sbUpsert('vencimientos',{id:x.id,user_id:uid,espacio:sp,nombre:x.nombre,cat:x.cat||'',fecha:x.fecha,importe:x.importe||null,repetir:parseInt(x.repetir)||0,alerta:parseInt(x.alerta)||7,nota:x.nota||'',pagado:x.pagado||false});
-       lsSave('ms2_'+sp+'_vencs',[...(bs[sp]||[]),...lo]);});}
-    // TAREAS merge
-    {const sbT=t||[];const localT=lsLoad('ms2_tareas');const sbIds=new Set(sbT.map(x=>x.id));
-     const localTFixed=localT.map(x=>x.id?x:{...x,id:'lt_'+Math.random().toString(36).slice(2)});
-     lsSave('ms2_tareas',localTFixed);
-     const lo=localTFixed.filter(x=>!sbIds.has(x.id));
-     for(const x of lo) sbUpsert('tareas',{id:x.id,user_id:uid,espacio:x.space,titulo:x.titulo,estado:x.estado||'Sin hacer',prio:x.prio||'Media',fecha:x.fecha||null,descripcion:x.desc||'',creada:x.creada});
-     lsSave('ms2_tareas',[...sbT.map(x=>({id:x.id,titulo:x.titulo,space:x.espacio,estado:x.estado||'Sin hacer',prio:x.prio||'Media',fecha:x.fecha||'',desc:x.descripcion||'',creada:x.creada||new Date().toISOString().split('T')[0]})),...lo]);}
-    // NOTAS merge
-    {const sbN=n||[];const sbIds=new Set(sbN.map(x=>x.id));
-     const bs={};sbN.forEach(x=>{if(!bs[x.espacio])bs[x.espacio]=[];bs[x.espacio].push({id:x.id,texto:x.texto,fecha:x.fecha});});
-     SIDS.forEach(sp=>{const loc=lsLoad('ms2_'+sp+'_notas');const locF=loc.map(x=>x.id?x:{...x,id:'ln_'+Math.random().toString(36).slice(2)});lsSave('ms2_'+sp+'_notas',locF);const lo=locF.filter(x=>!sbIds.has(x.id));
-       for(const x of lo) sbUpsert('notas',{id:x.id,user_id:uid,espacio:sp,texto:x.texto,fecha:x.fecha});
-       lsSave('ms2_'+sp+'_notas',[...(bs[sp]||[]),...lo]);});}
+    // Helpers: local timestamp vs remote timestamp
+    function lts(item){return item._ts||0;}
+    function rts(x){return x&&x.updated_at?new Date(x.updated_at).getTime():0;}
+    // GASTOS — last write wins
+    {
+      const sbG=g||[],sbMap=Object.fromEntries(sbG.map(x=>[x.id,x]));
+      let loc=lsLoad('ms2_pers_gastos');
+      loc=loc.map(x=>({...x,id:x.id||'g_'+uid(),_ts:x._ts||Date.now()}));
+      const locMap=Object.fromEntries(loc.map(x=>[x.id,x]));
+      const merged=[];
+      for(const item of loc){
+        const remote=sbMap[item.id];
+        if(!remote||lts(item)>=rts(remote)){
+          sbUpsert('gastos',{id:item.id,user_id:uid,fecha:item.fecha,importe:item.importe,rubro:item.rubro,descripcion:item.desc||'',empresa:item.empresa||'pers',updated_at:new Date(item._ts).toISOString()});
+          merged.push(item);
+        }else{
+          merged.push({id:remote.id,fecha:remote.fecha,importe:remote.importe,rubro:remote.rubro,desc:remote.descripcion||'',empresa:remote.empresa||'pers',_ts:rts(remote)});
+        }
+      }
+      for(const remote of sbG){if(!locMap[remote.id])merged.push({id:remote.id,fecha:remote.fecha,importe:remote.importe,rubro:remote.rubro,desc:remote.descripcion||'',empresa:remote.empresa||'pers',_ts:rts(remote)});}
+      lsSave('ms2_pers_gastos',merged);
+    }
+    // VENCIMIENTOS — last write wins
+    {
+      const sbV=v||[];
+      SIDS.forEach(sp=>{
+        const sbSp=sbV.filter(x=>x.espacio===sp),sbMap=Object.fromEntries(sbSp.map(x=>[x.id,x]));
+        let loc=lsLoad('ms2_'+sp+'_vencs');
+        loc=loc.map(x=>({...x,id:x.id||'v_'+uid(),_ts:x._ts||Date.now()}));
+        const locMap=Object.fromEntries(loc.map(x=>[x.id,x]));
+        const merged=[];
+        for(const item of loc){
+          const remote=sbMap[item.id];
+          if(!remote||lts(item)>=rts(remote)){
+            sbUpsert('vencimientos',{id:item.id,user_id:uid,espacio:sp,nombre:item.nombre,cat:item.cat||'',fecha:item.fecha,importe:item.importe||null,repetir:parseInt(item.repetir)||0,alerta:parseInt(item.alerta)||7,nota:item.nota||'',pagado:item.pagado||false,updated_at:new Date(item._ts).toISOString()});
+            merged.push(item);
+          }else{
+            merged.push({id:remote.id,nombre:remote.nombre,cat:remote.cat||'',fecha:remote.fecha,importe:remote.importe,repetir:remote.repetir||0,alerta:remote.alerta||7,nota:remote.nota||'',pagado:remote.pagado||false,_ts:rts(remote)});
+          }
+        }
+        for(const remote of sbSp){if(!locMap[remote.id])merged.push({id:remote.id,nombre:remote.nombre,cat:remote.cat||'',fecha:remote.fecha,importe:remote.importe,repetir:remote.repetir||0,alerta:remote.alerta||7,nota:remote.nota||'',pagado:remote.pagado||false,_ts:rts(remote)});}
+        lsSave('ms2_'+sp+'_vencs',merged);
+      });
+    }
+    // TAREAS — last write wins
+    {
+      const sbT=t||[],sbMap=Object.fromEntries(sbT.map(x=>[x.id,x]));
+      let loc=lsLoad('ms2_tareas');
+      loc=loc.map(x=>({...x,id:x.id||'t_'+uid(),_ts:x._ts||Date.now()}));
+      const locMap=Object.fromEntries(loc.map(x=>[x.id,x]));
+      const merged=[];
+      for(const item of loc){
+        const remote=sbMap[item.id];
+        if(!remote||lts(item)>=rts(remote)){
+          sbUpsert('tareas',{id:item.id,user_id:uid,espacio:item.space,titulo:item.titulo,estado:item.estado||'Sin hacer',prio:item.prio||'Media',fecha:item.fecha||null,descripcion:item.desc||'',creada:item.creada,updated_at:new Date(item._ts).toISOString()});
+          merged.push(item);
+        }else{
+          merged.push({id:remote.id,titulo:remote.titulo,space:remote.espacio,estado:remote.estado||'Sin hacer',prio:remote.prio||'Media',fecha:remote.fecha||'',desc:remote.descripcion||'',creada:remote.creada||'',_ts:rts(remote)});
+        }
+      }
+      for(const remote of sbT){if(!locMap[remote.id])merged.push({id:remote.id,titulo:remote.titulo,space:remote.espacio,estado:remote.estado||'Sin hacer',prio:remote.prio||'Media',fecha:remote.fecha||'',desc:remote.descripcion||'',creada:remote.creada||'',_ts:rts(remote)});}
+      lsSave('ms2_tareas',merged);
+    }
+    // NOTAS — last write wins
+    {
+      const sbN=n||[];
+      SIDS.forEach(sp=>{
+        const sbSp=sbN.filter(x=>x.espacio===sp),sbMap=Object.fromEntries(sbSp.map(x=>[x.id,x]));
+        let loc=lsLoad('ms2_'+sp+'_notas');
+        loc=loc.map(x=>({...x,id:x.id||'n_'+uid(),_ts:x._ts||Date.now()}));
+        const locMap=Object.fromEntries(loc.map(x=>[x.id,x]));
+        const merged=[];
+        for(const item of loc){
+          const remote=sbMap[item.id];
+          if(!remote||lts(item)>=rts(remote)){
+            sbUpsert('notas',{id:item.id,user_id:uid,espacio:sp,texto:item.texto,fecha:item.fecha,updated_at:new Date(item._ts).toISOString()});
+            merged.push(item);
+          }else{
+            merged.push({id:remote.id,texto:remote.texto,fecha:remote.fecha,_ts:rts(remote)});
+          }
+        }
+        for(const remote of sbSp){if(!locMap[remote.id])merged.push({id:remote.id,texto:remote.texto,fecha:remote.fecha,_ts:rts(remote)});}
+        lsSave('ms2_'+sp+'_notas',merged);
+      });
+    }
     await flushQueue();
   }catch(e){console.warn('pull error',e);}
 }
+
 async function sbUpsert(table,row){if(!sbUser)return;if(!isOnline){addToQueue('upsert',table,row);return;}try{await sb.from(table).upsert(row);}catch(e){addToQueue('upsert',table,row);}}
 async function sbDel(table,id){if(!sbUser)return;if(!isOnline){addToQueue('delete',table,{id});return;}try{await sb.from(table).delete().eq('id',id);}catch(e){addToQueue('delete',table,{id});}}
 function addToQueue(op,table,payload){const q=lsLoad('ms2_sync_queue');q.push({op,table,payload,ts:Date.now()});lsSave('ms2_sync_queue',q);}
 async function flushQueue(){if(!sbUser||!isOnline)return;const q=lsLoad('ms2_sync_queue');if(!q.length)return;const r=[];for(const i of q){try{if(i.op==='upsert')await sb.from(i.table).upsert(i.payload);else await sb.from(i.table).delete().eq('id',i.payload.id);}catch(e){r.push(i);}}lsSave('ms2_sync_queue',r);if(!r.length&&q.length)toast('✅ Sincronizado','green');}
-async function syncManual(){if(!sbUser){showLogin();return;}const b=document.getElementById('sync-btn');if(b)b.textContent='⏳';await pullFromSupabase();renderContent();renderAlerts();if(b)b.textContent=isOnline?'☁️':'📴';toast('✅ Sincronizado','green');}
-function appInit(){document.getElementById('top-date').textContent=new Date().toLocaleDateString('es-AR',{weekday:'short',day:'numeric',month:'short'}).toUpperCase();setCSSVars('pers');buildSpaceTabs();goSpace('global');updateSyncBtn();}
+async function syncManual(silent=false){if(!sbUser){if(!silent)showLogin();return;}const b=document.getElementById('sync-btn');if(b)b.textContent='⏳';await pullFromSupabase();renderContent();renderAlerts();if(b)b.textContent=isOnline?'☁️':'📴';if(!silent)toast('✅ Sincronizado','green');}
+function appInit(){document.getElementById('top-date').textContent=new Date().toLocaleDateString('es-AR',{weekday:'short',day:'numeric',month:'short'}).toUpperCase();setCSSVars('pers');buildSpaceTabs();goSpace('global');updateSyncBtn();setInterval(()=>syncManual(true),120000);}
 // ═══════════════════════════════════════════════════════
 // EMPRESAS
 // ═══════════════════════════════════════════════════════
@@ -795,7 +854,7 @@ function guardarGasto(){
   const desc=document.getElementById('g-desc').value.trim();
   const empresa=document.getElementById('g-empresa')?.value||'pers';
   if(!fecha||!importe||importe<=0||!rubro){toast('Completá rubro, fecha e importe','red');return;}
-  const ng={id:uid(),fecha,importe,rubro,desc,empresa};
+  const ng={id:uid(),fecha,importe,rubro,desc,empresa,_ts:Date.now()};
   const arr=getData('pers','gastos');arr.push(ng);setData('pers','gastos',arr);
   sbUpsert('gastos',{id:ng.id,user_id:sbUser?.id,fecha,importe,rubro,descripcion:desc,empresa});
   document.getElementById('g-imp').value='';
@@ -912,7 +971,7 @@ function guardarVenc(){
     importe:parseFloat(document.getElementById('v-imp').value)||null,
     repetir:document.getElementById('v-rep').value,
     alerta:document.getElementById('v-alerta').value,
-    nota:document.getElementById('v-nota').value.trim(),pagado:false});
+    nota:document.getElementById('v-nota').value.trim(),pagado:false,_ts:Date.now()});
   setData(curSpace,'vencs',arr);
   document.getElementById('v-nom').value='';document.getElementById('v-imp').value='';document.getElementById('v-nota').value='';
   renderContent();renderAlerts();toast('✅ Vencimiento guardado','green');
@@ -921,7 +980,7 @@ function pagarVenc(id){
   const arr=getData(curSpace,'vencs');
   const v=arr.find(x=>x.id===id);if(!v)return;
   const rep=parseInt(v.repetir||0);
-  if(rep>0){v.fecha=addDays(v.fecha,rep);}else{v.pagado=true;}
+  if(rep>0){v.fecha=addDays(v.fecha,rep);}else{v.pagado=true;}v._ts=Date.now();
   setData(curSpace,'vencs',arr);renderContent();renderAlerts();
 }
 function delVenc(id){
@@ -1031,7 +1090,7 @@ function abrirTarea(id){
 
 function setEstado(id,estado,ci){
   const arr=getTareas();const t=arr.find(x=>x.id===id);if(!t)return;
-  t.estado=estado;setTareas(arr);
+  t.estado=estado;t._ts=Date.now();setTareas(arr);
   document.querySelectorAll('.status-btn').forEach((b,i)=>{
     const e=ESTADOS[i];
     b.className='status-btn'+(e===estado?' on':'');
@@ -1043,7 +1102,7 @@ function setEstado(id,estado,ci){
 }
 function editTarea(id,field,val){
   const arr=getTareas();const t=arr.find(x=>x.id===id);if(!t)return;
-  t[field]=val;setTareas(arr);renderAlerts();
+  t[field]=val;t._ts=Date.now();setTareas(arr);renderAlerts();
 }
 function delTarea(id){
   setTareas(getTareas().filter(t=>t.id!==id));
@@ -1087,7 +1146,7 @@ function crearTarea(){
     prio:document.getElementById('nt-prio').value,
     fecha:document.getElementById('nt-fecha').value||'',
     desc:document.getElementById('nt-desc').value.trim(),
-    creada:isoHoy()});
+    creada:isoHoy(),_ts:Date.now()});
   setTareas(arr);closeModal();
   if(curMod==='tareas')renderContent();
   renderAlerts();toast('✅ Tarea creada','green');
@@ -1118,7 +1177,7 @@ function guardarNota(){
   const txt=document.getElementById('nota-txt').value.trim();
   if(!txt){toast('Escribí algo primero','red');return;}
   const arr=getData(curSpace,'notas');
-  arr.push({id:uid(),texto:txt,fecha:isoHoy()});
+  arr.push({id:uid(),texto:txt,fecha:isoHoy(),_ts:Date.now()});
   setData(curSpace,'notas',arr);
   document.getElementById('nota-txt').value='';
   renderContent();toast('✅ Nota guardada','green');
@@ -1142,7 +1201,7 @@ function actualizarNota(id){
   if(!txt)return;
   const arr=getData(curSpace,'notas');
   const n=arr.find(x=>x.id===id);if(!n)return;
-  n.texto=txt;n.fecha=isoHoy();
+  n.texto=txt;n.fecha=isoHoy();n._ts=Date.now();
   setData(curSpace,'notas',arr);
   closeModal();renderContent();toast('✅ Nota actualizada','green');
 }
