@@ -265,24 +265,29 @@ async function pullFromSupabase(){
     ]);
     // GASTOS merge
     {const sbG=g||[];const localG=lsLoad('ms2_pers_gastos');
-     const sbIds=new Set(sbG.map(x=>x.id));const lo=localG.filter(x=>!sbIds.has(x.id));
+     const sbIds=new Set(sbG.map(x=>x.id));
+     const localGFixed=localG.map(x=>x.id?x:{...x,id:'lg_'+Math.random().toString(36).slice(2)});
+     lsSave('ms2_pers_gastos',localGFixed);
+     const lo=localGFixed.filter(x=>!sbIds.has(x.id));
      for(const x of lo) sbUpsert('gastos',{id:x.id,user_id:uid,fecha:x.fecha,importe:x.importe,rubro:x.rubro,descripcion:x.desc||'',empresa:x.empresa||'pers'});
      lsSave('ms2_pers_gastos',[...sbG.map(x=>({id:x.id,fecha:x.fecha,importe:x.importe,rubro:x.rubro,desc:x.descripcion||'',empresa:x.empresa||'pers'})),...lo]);}
     // VENCIMIENTOS merge
     {const sbV=v||[];const sbIds=new Set(sbV.map(x=>x.id));
      const bs={};sbV.forEach(x=>{if(!bs[x.espacio])bs[x.espacio]=[];bs[x.espacio].push({id:x.id,nombre:x.nombre,cat:x.cat||'',fecha:x.fecha,importe:x.importe,repetir:x.repetir||0,alerta:x.alerta||7,nota:x.nota||'',pagado:x.pagado||false});});
-     SIDS.forEach(sp=>{const loc=lsLoad('ms2_'+sp+'_vencs');const lo=loc.filter(x=>!sbIds.has(x.id));
+     SIDS.forEach(sp=>{const loc=lsLoad('ms2_'+sp+'_vencs');const locF=loc.map(x=>x.id?x:{...x,id:'lv_'+Math.random().toString(36).slice(2)});lsSave('ms2_'+sp+'_vencs',locF);const lo=locF.filter(x=>!sbIds.has(x.id));
        for(const x of lo) sbUpsert('vencimientos',{id:x.id,user_id:uid,espacio:sp,nombre:x.nombre,cat:x.cat||'',fecha:x.fecha,importe:x.importe||null,repetir:parseInt(x.repetir)||0,alerta:parseInt(x.alerta)||7,nota:x.nota||'',pagado:x.pagado||false});
        lsSave('ms2_'+sp+'_vencs',[...(bs[sp]||[]),...lo]);});}
     // TAREAS merge
     {const sbT=t||[];const localT=lsLoad('ms2_tareas');const sbIds=new Set(sbT.map(x=>x.id));
-     const lo=localT.filter(x=>!sbIds.has(x.id));
+     const localTFixed=localT.map(x=>x.id?x:{...x,id:'lt_'+Math.random().toString(36).slice(2)});
+     lsSave('ms2_tareas',localTFixed);
+     const lo=localTFixed.filter(x=>!sbIds.has(x.id));
      for(const x of lo) sbUpsert('tareas',{id:x.id,user_id:uid,espacio:x.space,titulo:x.titulo,estado:x.estado||'Sin hacer',prio:x.prio||'Media',fecha:x.fecha||null,descripcion:x.desc||'',creada:x.creada});
      lsSave('ms2_tareas',[...sbT.map(x=>({id:x.id,titulo:x.titulo,space:x.espacio,estado:x.estado||'Sin hacer',prio:x.prio||'Media',fecha:x.fecha||'',desc:x.descripcion||'',creada:x.creada||new Date().toISOString().split('T')[0]})),...lo]);}
     // NOTAS merge
     {const sbN=n||[];const sbIds=new Set(sbN.map(x=>x.id));
      const bs={};sbN.forEach(x=>{if(!bs[x.espacio])bs[x.espacio]=[];bs[x.espacio].push({id:x.id,texto:x.texto,fecha:x.fecha});});
-     SIDS.forEach(sp=>{const loc=lsLoad('ms2_'+sp+'_notas');const lo=loc.filter(x=>!sbIds.has(x.id));
+     SIDS.forEach(sp=>{const loc=lsLoad('ms2_'+sp+'_notas');const locF=loc.map(x=>x.id?x:{...x,id:'ln_'+Math.random().toString(36).slice(2)});lsSave('ms2_'+sp+'_notas',locF);const lo=locF.filter(x=>!sbIds.has(x.id));
        for(const x of lo) sbUpsert('notas',{id:x.id,user_id:uid,espacio:sp,texto:x.texto,fecha:x.fecha});
        lsSave('ms2_'+sp+'_notas',[...(bs[sp]||[]),...lo]);});}
     await flushQueue();
