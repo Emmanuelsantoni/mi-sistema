@@ -298,7 +298,7 @@ async function sbDel(table,id){if(!sbUser)return;if(!isOnline){addToQueue('delet
 function addToQueue(op,table,payload){const q=lsLoad('ms2_sync_queue');q.push({op,table,payload,ts:Date.now()});lsSave('ms2_sync_queue',q);}
 async function flushQueue(){if(!sbUser||!isOnline)return;const q=lsLoad('ms2_sync_queue');if(!q.length)return;const r=[];for(const i of q){try{if(i.op==='upsert')await sb.from(i.table).upsert(i.payload);else await sb.from(i.table).delete().eq('id',i.payload.id);}catch(e){r.push(i);}}lsSave('ms2_sync_queue',r);if(!r.length&&q.length)toast('✅ Sincronizado','green');}
 async function syncManual(){if(!sbUser){showLogin();return;}const b=document.getElementById('sync-btn');if(b)b.textContent='⏳';await pullFromSupabase();renderContent();renderAlerts();if(b)b.textContent=isOnline?'☁️':'📴';toast('✅ Sincronizado','green');}
-function appInit(){document.getElementById('top-date').textContent=new Date().toLocaleDateString('es-AR',{weekday:'short',day:'numeric',month:'short'}).toUpperCase();setCSSVars('pers');buildSpaceTabs();goSpace('pers');updateSyncBtn();}
+function appInit(){document.getElementById('top-date').textContent=new Date().toLocaleDateString('es-AR',{weekday:'short',day:'numeric',month:'short'}).toUpperCase();setCSSVars('pers');buildSpaceTabs();goSpace('global');updateSyncBtn();}
 // ═══════════════════════════════════════════════════════
 // EMPRESAS
 // ═══════════════════════════════════════════════════════
