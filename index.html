@@ -252,106 +252,84 @@ async function doLogin(){
 }
 async function doLogout(){await sb.auth.signOut();sbUser=null;showLogin();}
 
-// Tombstones: track deleted IDs so sync doesn't restore them
-function addTombstone(id){var s=JSON.parse(localStorage.getItem('ms2_deleted')||'{}');s[id]=Date.now();localStorage.setItem('ms2_deleted',JSON.stringify(s));}
-function getTombstones(){return JSON.parse(localStorage.getItem('ms2_deleted')||'{}');}
-
+function sbTombstone(id,table){if(sbUser&&isOnline){sb.from('tombstones').upsert({id,user_id:sbUser.id,table_name:table,deleted_at:new Date().toISOString()}).then(()=>{}).catch(()=>{});}}
 async function pullFromSupabase(){
   if(!sbUser||!isOnline)return;
   try{
     const uid=sbUser.id;
     const SIDS=['pers','sant','covi','tork'];
-    const[{data:g},{data:v},{data:t},{data:n}]=await Promise.all([
+    const[{data:g},{data:v},{data:t},{data:n},{data:tb}]=await Promise.all([
       sb.from('gastos').select('*').eq('user_id',uid),
       sb.from('vencimientos').select('*').eq('user_id',uid),
       sb.from('tareas').select('*').eq('user_id',uid),
       sb.from('notas').select('*').eq('user_id',uid),
+      sb.from('tombstones').select('*').eq('user_id',uid),
     ]);
-    // Helpers: local timestamp vs remote timestamp
-    function lts(item){return item._ts||0;}
+    const tombs=Object.fromEntries((tb||[]).map(x=>[x.id,new Date(x.deleted_at).getTime()]));
     function rts(x){return x&&x.updated_at?new Date(x.updated_at).getTime():0;}
-    // GASTOS — last write wins
-    {
-      const sbG=g||[],sbMap=Object.fromEntries(sbG.map(x=>[x.id,x]));
-      let loc=lsLoad('ms2_pers_gastos');
-      loc=loc.map(x=>({...x,id:x.id||'g_'+uid(),_ts:x._ts||Date.now()}));
+    function mergeTable(localArr,sbArr,toLocal,toRemote,lsKey,table){
+      const loc=localArr.map(x=>({...x,id:x.id||table[0]+'_'+uid()}));
+      const sbMap=Object.fromEntries(sbArr.map(x=>[x.id,x]));
       const locMap=Object.fromEntries(loc.map(x=>[x.id,x]));
       const merged=[];
       for(const item of loc){
         const remote=sbMap[item.id];
-        if(!remote||lts(item)>=rts(remote)){
-          sbUpsert('gastos',{id:item.id,user_id:uid,fecha:item.fecha,importe:item.importe,rubro:item.rubro,descripcion:item.desc||'',empresa:item.empresa||'pers',updated_at:new Date(item._ts).toISOString()});
+        const localTs=item._ts||0;
+        const remoteTs=rts(remote);
+        if(!remote){
+          if(tombs[item.id]&&tombs[item.id]>localTs){
+            // Another device deleted it after our last local modification
+          }else{
+            sbUpsert(table,toRemote(item,uid));
+            merged.push(item);
+          }
+        }else if(localTs>remoteTs){
+          sbUpsert(table,toRemote(item,uid));
           merged.push(item);
         }else{
-          merged.push({id:remote.id,fecha:remote.fecha,importe:remote.importe,rubro:remote.rubro,desc:remote.descripcion||'',empresa:remote.empresa||'pers',_ts:rts(remote)});
+          merged.push({...toLocal(remote),_ts:remoteTs});
         }
       }
-      const stones=getTombstones();for(const remote of sbG){if(!locMap[remote.id]){if(stones[remote.id]&&stones[remote.id]>=rts(remote)){sbDel('gastos',remote.id);}else{merged.push({id:remote.id,fecha:remote.fecha,importe:remote.importe,rubro:remote.rubro,desc:remote.descripcion||'',empresa:remote.empresa||'pers',_ts:rts(remote)});}}}
-      lsSave('ms2_pers_gastos',merged);
-    }
-    // VENCIMIENTOS — last write wins
-    {
-      const sbV=v||[];
-      SIDS.forEach(sp=>{
-        const sbSp=sbV.filter(x=>x.espacio===sp),sbMap=Object.fromEntries(sbSp.map(x=>[x.id,x]));
-        let loc=lsLoad('ms2_'+sp+'_vencs');
-        loc=loc.map(x=>({...x,id:x.id||'v_'+uid(),_ts:x._ts||Date.now()}));
-        const locMap=Object.fromEntries(loc.map(x=>[x.id,x]));
-        const merged=[];
-        for(const item of loc){
-          const remote=sbMap[item.id];
-          if(!remote||lts(item)>=rts(remote)){
-            sbUpsert('vencimientos',{id:item.id,user_id:uid,espacio:sp,nombre:item.nombre,cat:item.cat||'',fecha:item.fecha,importe:item.importe||null,repetir:parseInt(item.repetir)||0,alerta:parseInt(item.alerta)||7,nota:item.nota||'',pagado:item.pagado||false,updated_at:new Date(item._ts).toISOString()});
-            merged.push(item);
+      for(const remote of sbArr){
+        if(!locMap[remote.id]){
+          const remoteTs=rts(remote);
+          if(tombs[remote.id]&&tombs[remote.id]>=remoteTs){
+            sbDel(table,remote.id);
           }else{
-            merged.push({id:remote.id,nombre:remote.nombre,cat:remote.cat||'',fecha:remote.fecha,importe:remote.importe,repetir:remote.repetir||0,alerta:remote.alerta||7,nota:remote.nota||'',pagado:remote.pagado||false,_ts:rts(remote)});
+            merged.push({...toLocal(remote),_ts:remoteTs});
           }
-        }
-        const stonesV=getTombstones();for(const remote of sbSp){if(!locMap[remote.id]){if(stonesV[remote.id]&&stonesV[remote.id]>=rts(remote)){sbDel('vencimientos',remote.id);}else{merged.push({id:remote.id,nombre:remote.nombre,cat:remote.cat||'',fecha:remote.fecha,importe:remote.importe,repetir:remote.repetir||0,alerta:remote.alerta||7,nota:remote.nota||'',pagado:remote.pagado||false,_ts:rts(remote)});}}}
-        lsSave('ms2_'+sp+'_vencs',merged);
-      });
-    }
-    // TAREAS — last write wins
-    {
-      const sbT=t||[],sbMap=Object.fromEntries(sbT.map(x=>[x.id,x]));
-      let loc=lsLoad('ms2_tareas');
-      loc=loc.map(x=>({...x,id:x.id||'t_'+uid(),_ts:x._ts||Date.now()}));
-      const locMap=Object.fromEntries(loc.map(x=>[x.id,x]));
-      const merged=[];
-      for(const item of loc){
-        const remote=sbMap[item.id];
-        if(!remote||lts(item)>=rts(remote)){
-          sbUpsert('tareas',{id:item.id,user_id:uid,espacio:item.space,titulo:item.titulo,estado:item.estado||'Sin hacer',prio:item.prio||'Media',fecha:item.fecha||null,descripcion:item.desc||'',creada:item.creada,updated_at:new Date(item._ts).toISOString()});
-          merged.push(item);
-        }else{
-          merged.push({id:remote.id,titulo:remote.titulo,space:remote.espacio,estado:remote.estado||'Sin hacer',prio:remote.prio||'Media',fecha:remote.fecha||'',desc:remote.descripcion||'',creada:remote.creada||'',_ts:rts(remote)});
         }
       }
-      const stonesT=getTombstones();for(const remote of sbT){if(!locMap[remote.id]){if(stonesT[remote.id]&&stonesT[remote.id]>=rts(remote)){sbDel('tareas',remote.id);}else{merged.push({id:remote.id,titulo:remote.titulo,space:remote.espacio,estado:remote.estado||'Sin hacer',prio:remote.prio||'Media',fecha:remote.fecha||'',desc:remote.descripcion||'',creada:remote.creada||'',_ts:rts(remote)});}}}
-      lsSave('ms2_tareas',merged);
+      lsSave(lsKey,merged);
     }
-    // NOTAS — last write wins
-    {
-      const sbN=n||[];
-      SIDS.forEach(sp=>{
-        const sbSp=sbN.filter(x=>x.espacio===sp),sbMap=Object.fromEntries(sbSp.map(x=>[x.id,x]));
-        let loc=lsLoad('ms2_'+sp+'_notas');
-        loc=loc.map(x=>({...x,id:x.id||'n_'+uid(),_ts:x._ts||Date.now()}));
-        const locMap=Object.fromEntries(loc.map(x=>[x.id,x]));
-        const merged=[];
-        for(const item of loc){
-          const remote=sbMap[item.id];
-          if(!remote||lts(item)>=rts(remote)){
-            sbUpsert('notas',{id:item.id,user_id:uid,espacio:sp,texto:item.texto,fecha:item.fecha,updated_at:new Date(item._ts).toISOString()});
-            merged.push(item);
-          }else{
-            merged.push({id:remote.id,texto:remote.texto,fecha:remote.fecha,_ts:rts(remote)});
-          }
-        }
-        const stonesN=getTombstones();for(const remote of sbSp){if(!locMap[remote.id]){if(stonesN[remote.id]&&stonesN[remote.id]>=rts(remote)){sbDel('notas',remote.id);}else{merged.push({id:remote.id,texto:remote.texto,fecha:remote.fecha,_ts:rts(remote)});}}}
-        lsSave('ms2_'+sp+'_notas',merged);
-      });
-    }
+    mergeTable(
+      lsLoad('ms2_pers_gastos'),g||[],
+      r=>({id:r.id,fecha:r.fecha,importe:r.importe,rubro:r.rubro,desc:r.descripcion||'',empresa:r.empresa||'pers'}),
+      (x,u)=>({id:x.id,user_id:u,fecha:x.fecha,importe:x.importe,rubro:x.rubro,descripcion:x.desc||'',empresa:x.empresa||'pers',updated_at:new Date(x._ts||Date.now()).toISOString()}),
+      'ms2_pers_gastos','gastos'
+    );
+    SIDS.forEach(sp=>{
+      mergeTable(
+        lsLoad('ms2_'+sp+'_vencs'),(v||[]).filter(x=>x.espacio===sp),
+        r=>({id:r.id,nombre:r.nombre,cat:r.cat||'',fecha:r.fecha,importe:r.importe,repetir:r.repetir||0,alerta:r.alerta||7,nota:r.nota||'',pagado:r.pagado||false}),
+        (x,u)=>({id:x.id,user_id:u,espacio:sp,nombre:x.nombre,cat:x.cat||'',fecha:x.fecha,importe:x.importe||null,repetir:parseInt(x.repetir)||0,alerta:parseInt(x.alerta)||7,nota:x.nota||'',pagado:x.pagado||false,updated_at:new Date(x._ts||Date.now()).toISOString()}),
+        'ms2_'+sp+'_vencs','vencimientos'
+      );
+    });
+    mergeTable(
+      lsLoad('ms2_tareas'),t||[],
+      r=>({id:r.id,titulo:r.titulo,space:r.espacio,estado:r.estado||'Sin hacer',prio:r.prio||'Media',fecha:r.fecha||'',desc:r.descripcion||'',creada:r.creada||''}),
+      (x,u)=>({id:x.id,user_id:u,espacio:x.space,titulo:x.titulo,estado:x.estado||'Sin hacer',prio:x.prio||'Media',fecha:x.fecha||null,descripcion:x.desc||'',creada:x.creada,updated_at:new Date(x._ts||Date.now()).toISOString()}),
+      'ms2_tareas','tareas'
+    );
+    SIDS.forEach(sp=>{
+      mergeTable(
+        lsLoad('ms2_'+sp+'_notas'),(n||[]).filter(x=>x.espacio===sp),
+        r=>({id:r.id,texto:r.texto,fecha:r.fecha}),
+        (x,u)=>({id:x.id,user_id:u,espacio:sp,texto:x.texto,fecha:x.fecha,updated_at:new Date(x._ts||Date.now()).toISOString()}),
+        'ms2_'+sp+'_notas','notas'
+      );
+    });
     await flushQueue();
   }catch(e){console.warn('pull error',e);}
 }
@@ -896,7 +874,7 @@ function renderTablaGastos(){
 
 function delGasto(id){
   setData('pers','gastos',getData('pers','gastos').filter(g=>g.id!==id));
-  sbDel('gastos',id);addTombstone(id);
+  sbDel('gastos',id);sbTombstone(id,'gastos');
   renderTablaGastos();
 }
 
@@ -984,12 +962,12 @@ function pagarVenc(id){
   const arr=getData(curSpace,'vencs');
   const v=arr.find(x=>x.id===id);if(!v)return;
   const rep=parseInt(v.repetir||0);
-  if(rep>0){v.fecha=addDays(v.fecha,rep);}else{v.pagado=true;}v._ts=Date.now();
+  if(rep>0){v.fecha=addDays(v.fecha,rep);}else{v.pagado=true;}v._ts=Date.now();v._ts=Date.now();
   setData(curSpace,'vencs',arr);renderContent();renderAlerts();
 }
 function delVenc(id){
   setData(curSpace,'vencs',getData(curSpace,'vencs').filter(v=>v.id!==id));
-  sbDel('vencimientos',id);addTombstone(id);
+  sbDel('vencimientos',id);sbTombstone(id,'vencimientos');
   renderContent();renderAlerts();
 }
 
@@ -1111,7 +1089,7 @@ function editTarea(id,field,val){
 }
 function delTarea(id){
   setTareas(getTareas().filter(t=>t.id!==id));
-  sbDel('tareas',id);addTombstone(id);closeModal();
+  sbDel('tareas',id);sbTombstone(id,'tareas');closeModal();
   if(curMod==='tareas')renderContent();
   renderAlerts();
 }
@@ -1206,13 +1184,13 @@ function actualizarNota(id){
   if(!txt)return;
   const arr=getData(curSpace,'notas');
   const n=arr.find(x=>x.id===id);if(!n)return;
-  n.texto=txt;n.fecha=isoHoy();n._ts=Date.now();
+  n.texto=txt;n.fecha=isoHoy();n._ts=Date.now();n._ts=Date.now();
   setData(curSpace,'notas',arr);
   closeModal();renderContent();toast('✅ Nota actualizada','green');
 }
 function delNota(id){
   setData(curSpace,'notas',getData(curSpace,'notas').filter(n=>n.id!==id));
-  sbDel('notas',id);addTombstone(id);
+  sbDel('notas',id);sbTombstone(id,'notas');
   renderContent();
 }
 
