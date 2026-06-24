@@ -398,9 +398,9 @@ function calPrev(){if(_calM===0){_calM=11;_calY--;}else _calM--;_calSel=null;ren
 function calNext(){if(_calM===11){_calM=0;_calY++;}else _calM++;_calSel=null;renderCal();}
 function getCalEventos(){
   const ev={};
-  function add(fecha,label,color,sp){if(!fecha)return;if(!ev[fecha])ev[fecha]=[];ev[fecha].push({label,color,sp});}
-  SPACES.forEach(sp=>{getData(sp.id,'vencs').forEach(v=>{if(!v.fecha||v.pagado)return;const d=diasHasta(v.fecha);add(v.fecha,'📋 '+v.nombre,d<0?'#e24b4a':d<=3?'#f59e0b':'#7c3aed',sp.name);});});
-  getTareas().filter(t=>t.fecha&&t.estado!=='Finalizado').forEach(t=>{const d=diasHasta(t.fecha);const sp=SMAP[t.space]||SPACES[0];add(t.fecha,'✅ '+t.titulo,d<0?'#e24b4a':d<=1?'#f59e0b':'#2878d4',sp.name);});
+  function add(fecha,label,color,sp,id,type){if(!fecha)return;if(!ev[fecha])ev[fecha]=[];ev[fecha].push({label,color,sp,id:id||'',type:type||''});}
+  SPACES.forEach(sp=>{getData(sp.id,'vencs').forEach(v=>{if(!v.fecha||v.pagado)return;const d=diasHasta(v.fecha);add(v.fecha,'📋 '+v.nombre,d<0?'#e24b4a':d<=3?'#f59e0b':'#7c3aed',sp.name,v.id,'venc');});});
+  getTareas().filter(t=>t.fecha&&t.estado!=='Finalizado').forEach(t=>{const d=diasHasta(t.fecha);const sp=SMAP[t.space]||SPACES[0];add(t.fecha,'✅ '+t.titulo,d<0?'#e24b4a':d<=1?'#f59e0b':'#2878d4',sp.name,t.id,'tarea');});
   return ev;
 }
 function renderCal(){
@@ -424,14 +424,38 @@ function renderCal(){
   if(_calSel)renderCalDetalle(_calSel,ev);else document.getElementById('cal-detalle').innerHTML='';
 }
 function calSelDay(iso){_calSel=iso;renderCal();}
+function calAbrirEvento(type,id){
+  if(!id)return;
+  closeCalendario();
+  if(type==='tarea'){setTimeout(()=>abrirTarea(id),200);}
+  else if(type==='venc'){
+    for(const sp of SPACES){const v=getData(sp.id,'vencs').find(x=>x.id===id);if(v){curSpace=sp.id;goSpace(sp.id);break;}}
+  }
+}
+function calNuevaTarea(fecha){
+  closeCalendario();
+  setTimeout(()=>{
+    nuevaTarea('Sin hacer',curSpace||'pers');
+    setTimeout(()=>{const fi=document.getElementById('nt-fecha');if(fi)fi.value=fecha;},80);
+  },200);
+}
+
 function renderCalDetalle(iso,ev){
   const evs=(ev||getCalEventos())[iso]||[];
   const[y,m,d]=iso.split('-');
   const label=parseInt(d)+' de '+MESES_ES[parseInt(m)-1]+' '+y;
   const det=document.getElementById('cal-detalle');
-  if(!evs.length){det.innerHTML=`<div style="padding:12px;background:rgba(255,255,255,.05);border-radius:10px;text-align:center;color:rgba(255,255,255,.4);font-size:13px">${label} — sin eventos</div>`;return;}
-  det.innerHTML='<div style="padding:12px;background:rgba(255,255,255,.05);border-radius:10px"><div style="font-size:12px;font-weight:700;color:rgba(255,255,255,.5);margin-bottom:8px">'+label.toUpperCase()+'</div>'+evs.map(e=>'<div style="display:flex;align-items:flex-start;gap:8px;padding:7px 0;border-bottom:1px solid rgba(255,255,255,.06)"><div style="width:8px;height:8px;border-radius:50%;background:'+e.color+';margin-top:4px;flex-shrink:0"></div><div><div style="font-size:13.5px;color:#fff;font-weight:500">'+esc(e.label)+'</div><div style="font-size:11px;color:rgba(255,255,255,.4);margin-top:2px">'+esc(e.sp)+'</div></div></div>').join('')+'</div>';
+  const newBtn='<button onclick="calNuevaTarea(\''+iso+'\')" style="margin-top:10px;width:100%;padding:9px;background:rgba(124,58,237,.2);border:1.5px solid rgba(124,58,237,.4);border-radius:9px;color:#a78bfa;font-size:13px;font-weight:600;cursor:pointer">➕ Nueva tarea</button>';
+  if(!evs.length){
+    det.innerHTML='<div style="padding:12px;background:rgba(255,255,255,.05);border-radius:10px;text-align:center;color:rgba(255,255,255,.4);font-size:13px">'+label+' — sin eventos</div>'+newBtn;
+    return;
+  }
+  det.innerHTML='<div style="padding:12px;background:rgba(255,255,255,.05);border-radius:10px">'
+    +'<div style="font-size:12px;font-weight:700;color:rgba(255,255,255,.5);margin-bottom:8px">'+label.toUpperCase()+'</div>'
+    +evs.map(e=>'<div onclick="calAbrirEvento(\''+e.type+'\',\''+e.id+'\')" style="display:flex;align-items:flex-start;gap:8px;padding:8px 6px;border-bottom:1px solid rgba(255,255,255,.06);cursor:pointer;border-radius:6px;transition:background .15s" onmouseover="this.style.background=\'rgba(255,255,255,.07)\'" onmouseout="this.style.background=\'\'"><div style="width:8px;height:8px;border-radius:50%;background:'+e.color+';margin-top:4px;flex-shrink:0"></div><div style="flex:1"><div style="font-size:13.5px;color:#fff;font-weight:500">'+esc(e.label)+'</div><div style="font-size:11px;color:rgba(255,255,255,.4);margin-top:2px">'+esc(e.sp)+'</div></div><div style="color:rgba(255,255,255,.3);font-size:14px;margin-top:1px">›</div></div>'
+    ).join('')+'</div>'+newBtn;
 }
+
 // ══════════════════════════════════════════════
 // CONFIGURACIÓN
 // ══════════════════════════════════════════════
@@ -908,7 +932,7 @@ function buildVencs(){
     </div>
     <div class="fg fg2" style="margin-bottom:10px">
       <div><label class="lbl">Alertar</label>
-        <select id="v-alerta">${['3','5','7','10','15'].map(d=>`<option value="${d}"${d==='7'?' selected':''}>${d} días antes</option>`).join('')}</select>
+        <select id="v-alerta">${['1','3','5','7','10','15'].map(d=>`<option value="${d}"${d==='7'?' selected':''}>${d==='1'?'1 d\xeda antes':d+' d\xedas antes'}</option>`).join('')}</select>
       </div>
       <div><label class="lbl">Nota</label><input type="text" id="v-nota" placeholder="Ej: Pago Fácil"></div>
     </div>
@@ -1082,6 +1106,7 @@ function setEstado(id,estado,ci){
     b.style.color=e===estado?ESTADOS_C[i]:'';
   });
   renderAlerts();
+  if(estado==='Finalizado'){toast('✅ Tarea finalizada','green');setTimeout(()=>delTarea(id),1200);}
 }
 function editTarea(id,field,val){
   const arr=getTareas();const t=arr.find(x=>x.id===id);if(!t)return;
