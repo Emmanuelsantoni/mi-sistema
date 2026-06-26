@@ -117,8 +117,13 @@ textarea{resize:vertical;min-height:60px}
 .k-btn-add{width:100%;padding:8px;border:1.5px dashed var(--border2);border-radius:8px;background:none;color:var(--t3);font-size:13px;cursor:pointer;margin-top:4px}
 .kanban-semana{display:grid;grid-template-columns:repeat(7,185px);gap:8px;padding:2px}
 .k-today{border:1.5px solid rgba(124,58,237,.4)!important;background:rgba(124,58,237,.04)!important}
-.k-fin{opacity:.55}
+.k-fin{opacity:.8;border-color:rgba(26,158,114,.3)!important;border-left-color:#1a9e72!important;background:rgba(26,158,114,.04)}
 .k-fin .k-card-ttl{text-decoration:line-through;color:var(--t3)}
+.k-done-overlay{display:flex;align-items:center;justify-content:center;gap:4px;background:rgba(26,158,114,.12);border-radius:5px;padding:3px 6px;margin-top:5px;font-size:10.5px;font-weight:700;color:#1a9e72}
+.k-mes-cell{min-height:76px;background:#f8f7f4;border:1.5px solid var(--border);border-radius:7px;padding:4px;overflow:hidden;cursor:default}
+.k-mes-cell.hoy{background:rgba(124,58,237,.05);border-color:rgba(124,58,237,.4)!important}
+.k-mes-mini{border-left:2px solid transparent;border-radius:3px;padding:2px 4px;margin-bottom:2px;font-size:10px;cursor:pointer;line-height:1.3;display:block;width:100%;text-align:left;background:#fff;border:1px solid var(--border)}
+.k-mes-mini.done{background:rgba(26,158,114,.08);border-left-color:#1a9e72!important}
 .k-stat-btns{display:flex;gap:3px;flex-wrap:wrap;margin-top:5px}
 .k-stat-btn{flex:1;padding:3px 0;border-radius:4px;border:1.5px solid;font-size:9px;font-weight:700;cursor:pointer;background:none;min-width:22px;line-height:1.2}
 .k-stat-btn.on{color:#fff!important}
@@ -240,6 +245,7 @@ let userRole='admin';    // 'admin' | 'member'
 let teamMembers=[];      // [{member_id, member_name}]
 let kanbanMode='estado'; // 'estado' | 'semana'
 let _kanbanWeek=0;
+let _kanbanMesOffset=0;
 let showFinaliz=true;
 window.addEventListener('online',()=>{isOnline=true;flushQueue();updateSyncBtn();});
 window.addEventListener('offline',()=>{isOnline=false;updateSyncBtn();});
@@ -337,8 +343,8 @@ async function pullFromSupabase(){
     });
     mergeTable(
       lsLoad('ms2_tareas'),t||[],
-      r=>({id:r.id,titulo:r.titulo,space:r.espacio,estado:r.estado||'Sin hacer',prio:r.prio||'Media',fecha:r.fecha||'',desc:r.descripcion||'',creada:r.creada||'',user_id:r.user_id,assigned_to:r.assigned_to||null,tipo:r.tipo||'normal',duracion_min:r.duracion_min||null,recur:r.recur||null,recur_completado:r.recur_completado||null,horas_total:r.horas_total||null,horas_dia:r.horas_dia||null,horas_log:r.horas_log||[]}),
-      (x,u)=>({id:x.id,user_id:x.user_id||u,espacio:x.space,titulo:x.titulo,estado:x.estado||'Sin hacer',prio:x.prio||'Media',fecha:x.fecha||null,descripcion:x.desc||'',creada:x.creada,assigned_to:x.assigned_to||null,tipo:x.tipo||'normal',duracion_min:x.duracion_min||null,recur:x.recur||null,recur_completado:x.recur_completado||null,horas_total:x.horas_total||null,horas_dia:x.horas_dia||null,horas_log:x.horas_log||[],updated_at:new Date(x._ts||Date.now()).toISOString()}),
+      r=>({id:r.id,titulo:r.titulo,space:r.espacio,estado:r.estado||'Sin hacer',prio:r.prio||'Media',fecha:r.fecha||'',desc:r.descripcion||'',creada:r.creada||'',user_id:r.user_id,assigned_to:r.assigned_to||null,tipo:r.tipo||'normal',duracion_min:r.duracion_min||null,recur:r.recur||null,recur_completado:r.recur_completado||null,horas_total:r.horas_total||null,horas_dia:r.horas_dia||null,horas_log:r.horas_log||[],fecha_inicio:r.fecha_inicio||null,fecha_fin:r.fecha_fin||null,recur_log:r.recur_log||[]}),
+      (x,u)=>({id:x.id,user_id:x.user_id||u,espacio:x.space,titulo:x.titulo,estado:x.estado||'Sin hacer',prio:x.prio||'Media',fecha:x.fecha||null,descripcion:x.desc||'',creada:x.creada,assigned_to:x.assigned_to||null,tipo:x.tipo||'normal',duracion_min:x.duracion_min||null,recur:x.recur||null,recur_completado:x.recur_completado||null,horas_total:x.horas_total||null,horas_dia:x.horas_dia||null,horas_log:x.horas_log||[],fecha_inicio:x.fecha_inicio||null,fecha_fin:x.fecha_fin||null,recur_log:x.recur_log||[],updated_at:new Date(x._ts||Date.now()).toISOString()}),
       'ms2_tareas','tareas'
     );
     SIDS.forEach(sp=>{
@@ -668,16 +674,27 @@ function renderKanbanSemana(tareas,filter){
   days.forEach(d=>{byDay[d]=[];});
 
   let cards=[...tareas];
-  if(!showFinaliz)cards=cards.filter(t=>t.estado!=='Finalizado');
+  if(!showFinaliz)cards=cards.filter(t=>t.estado!=='Finalizado'&&!(t.tipo==='recurring'&&isDoneOnDate(t,today)));
   if(filter&&filter!=='all'&&filter!=='member')cards=cards.filter(t=>t.space===filter);
   if(filter==='member')cards=cards.filter(t=>teamMembers.some(m=>m.member_id===t.assigned_to||m.member_id===t.user_id));
 
   cards.forEach(t=>{
-    if(t.fecha&&byDay[t.fecha]!==undefined){byDay[t.fecha].push(t);}
-    else if(t.fecha&&t.fecha<days[0]){byDay[days[0]].push(t);}
-    else if(!t.fecha){noDat.push(t);}
+    if(!t.tipo||t.tipo==='normal'){
+      if(t.fecha&&byDay[t.fecha]!==undefined){byDay[t.fecha].push({task:t,fecha:t.fecha});}
+      else if(t.fecha&&t.fecha<days[0]){byDay[days[0]].push({task:t,fecha:days[0]});}
+      else if(!t.fecha){noDat.push({task:t,fecha:null});}
+    }else{
+      // recurring/timed: show on each day in date range
+      const start=t.fecha_inicio||t.fecha;
+      const end=t.fecha_fin||t.fecha_inicio||t.fecha;
+      days.forEach(d=>{
+        if(start&&end&&d>=start&&d<=end){byDay[d].push({task:t,fecha:d});}
+        else if(start&&!end&&d===start){byDay[d].push({task:t,fecha:d});}
+        else if(!start&&t.fecha&&d===t.fecha){byDay[d].push({task:t,fecha:d});}
+      });
+    }
   });
-  Object.keys(byDay).forEach(d=>{byDay[d].sort((a,b)=>(PRIO_O[a.prio]||1)-(PRIO_O[b.prio]||1));});
+  Object.keys(byDay).forEach(d=>{byDay[d].sort((a,b)=>(PRIO_O[a.task.prio]||1)-(PRIO_O[b.task.prio]||1));});
 
   const navStyle='padding:6px 12px;border-radius:8px;border:1.5px solid var(--border2);background:#fff;font-size:13px;font-weight:600;cursor:pointer;color:var(--t1)';
   const wkLabel=days[0]+' → '+days[6];
@@ -698,38 +715,175 @@ function renderKanbanSemana(tareas,filter){
           <span class="k-col-ttl" style="color:${isToday?'#7c3aed':'var(--t3)'}">${DIAS[i]} ${dn}/${mc}</span>
           <span class="k-count">${dc.length}</span>
         </div>
-        ${dc.map(t=>renderWeekCard(t)).join('')}
+        ${dc.map(item=>renderWeekCard(item.task,item.fecha)).join('')}
         <button class="k-btn-add" onclick="calNuevaTarea('${iso}')">+ Agregar</button>
       </div>`;
     }).join('')}
   </div></div>
   ${noDat.length?`<div style="margin-top:12px"><div style="font-size:11px;font-weight:700;color:var(--t3);text-transform:uppercase;letter-spacing:.07em;margin-bottom:6px">Sin fecha (${noDat.length})</div>
-  <div style="display:flex;gap:6px;flex-wrap:wrap">${noDat.map(t=>`<div class="k-card" style="border-left-color:${PRIO_C[t.prio]||'#888'};width:170px;flex-shrink:0" onclick="abrirTarea('${t.id}')"><div class="k-card-ttl">${esc(t.titulo)}</div><div style="font-size:10px;color:var(--t3);margin-top:2px">${SMAP[t.space]?.name||''} · ${t.prio}</div></div>`).join('')}</div></div>`:''}`;
+  <div style="display:flex;gap:6px;flex-wrap:wrap">${noDat.map(item=>`<div class="k-card" style="border-left-color:${PRIO_C[item.task.prio]||'#888'};width:170px;flex-shrink:0" onclick="abrirTarea('${item.task.id}')"><div class="k-card-ttl">${esc(item.task.titulo)}</div><div style="font-size:10px;color:var(--t3);margin-top:2px">${SMAP[item.task.space]?.name||''} · ${item.task.prio}</div></div>`).join('')}</div></div>`:''}`;
 }
 
-function renderWeekCard(t){
+function renderWeekCard(t,fecha){
   const pc=PRIO_C[t.prio]||'#888';
   const sp=SMAP[t.space]||SPACES[0];
-  const isFin=t.estado==='Finalizado';
+  const done=isDoneOnDate(t,fecha);
   const horasAcum=t.tipo==='timed'?(t.horas_log||[]).reduce((s,l)=>s+(l.horas||0),0):0;
+  const horasHoy=t.tipo==='timed'?(t.horas_log||[]).find(l=>l.fecha===fecha)?.horas||0:0;
   const pct=t.tipo==='timed'&&t.horas_total?Math.min(100,Math.round(horasAcum/t.horas_total*100)):0;
   const assignee=teamMembers.find(m=>m.member_id===t.assigned_to);
-  return`<div class="k-card${isFin?' k-fin':''}" style="border-left-color:${pc}" onclick="abrirTarea('${t.id}')">
+  const borderC=done?'#1a9e72':pc;
+  let actionBtn='';
+  if(t.tipo==='recurring'){
+    actionBtn=done
+      ?`<div class="k-done-overlay">✓ Hecho hoy</div>`
+      :`<div class="k-stat-btns" onclick="event.stopPropagation()"><button style="width:100%;padding:4px;border-radius:6px;border:1.5px solid #1a9e72;background:none;color:#1a9e72;font-size:11px;font-weight:700;cursor:pointer" onclick="marcarDiaRecurrente('${t.id}','${fecha}')">✓ Marcar hecho</button></div>`;
+  } else if(t.tipo==='timed'){
+    actionBtn=`<div style="font-size:9px;color:${horasHoy>0?'#1a9e72':'var(--t3)'};margin:2px 0">Hoy: ${horasHoy}h / Total: ${horasAcum}/${t.horas_total||'?'}h</div>`
+      +(done?`<div class="k-done-overlay">✓ Horas del día completas</div>`
+        :`<div class="k-stat-btns" onclick="event.stopPropagation()"><button style="width:100%;padding:4px;border-radius:6px;border:1.5px solid #0ea5e9;background:none;color:#0ea5e9;font-size:11px;font-weight:700;cursor:pointer" onclick="logHorasDiaEsp('${t.id}','${fecha}',${t.horas_dia||1})">⏱ +${t.horas_dia||1}h</button></div>`);
+  } else {
+    const isFin=t.estado==='Finalizado';
+    actionBtn=isFin
+      ?`<div class="k-done-overlay">✓ Finalizada</div>`
+      :`<div class="k-stat-btns" onclick="event.stopPropagation()">
+        ${ESTADOS.map((e,i)=>`<button class="k-stat-btn${t.estado===e?' on':''}"
+          title="${e}"
+          style="background:${t.estado===e?ESTADOS_C[i]:'none'};border-color:${ESTADOS_C[i]};color:${t.estado===e?'#fff':ESTADOS_C[i]}"
+          onclick="setEstado('${t.id}','${e}',${i});document.getElementById('kanban-wrap').innerHTML=renderKanbanSemana(getTareas(),kanbanFilter)">${e.charAt(0)}</button>`).join('')}
+      </div>`;
+  }
+  return`<div class="k-card${done?' k-fin':''}" style="border-left-color:${borderC}" onclick="abrirTarea('${t.id}')">
     ${t.tipo==='recurring'?`<div style="font-size:9px;color:#7c3aed;font-weight:700;margin-bottom:2px">🔄 ${t.duracion_min||0}min</div>`:''}
-    <div class="k-card-ttl" style="${isFin?'font-size:12.5px':''}">${esc(t.titulo)}</div>
-    ${t.tipo==='timed'?`<div class="k-prog-bar"><div class="k-prog-fill" style="width:${pct}%"></div></div><div style="font-size:9px;color:var(--t3)">${horasAcum}/${t.horas_total||0}h</div>`:''}
+    <div class="k-card-ttl">${esc(t.titulo)}</div>
+    ${t.tipo==='timed'?`<div class="k-prog-bar"><div class="k-prog-fill" style="width:${pct}%"></div></div>`:''}
     <div class="k-card-meta" style="margin:3px 0">
       <span style="width:5px;height:5px;border-radius:50%;background:${sp.color};display:inline-block"></span>
       <span style="font-size:10px;color:${sp.color};font-weight:600">${sp.name}</span>
       ${assignee?`<span class="badge" style="font-size:9px;background:rgba(14,165,233,.1);color:#0ea5e9">${esc(assignee.member_name)}</span>`:''}
     </div>
-    <div class="k-stat-btns" onclick="event.stopPropagation()">
-      ${ESTADOS.map((e,i)=>`<button class="k-stat-btn${t.estado===e?' on':''}"
-        title="${e}"
-        style="background:${t.estado===e?ESTADOS_C[i]:'none'};border-color:${ESTADOS_C[i]};color:${t.estado===e?'#fff':ESTADOS_C[i]}"
-        onclick="setEstado('${t.id}','${e}',${i});document.getElementById('kanban-wrap').innerHTML=renderKanbanSemana(getTareas(),kanbanFilter)">${e.charAt(0)}</button>`).join('')}
-    </div>
+    ${actionBtn}
   </div>`;
+}
+
+
+// ── isDoneOnDate helper ────────────────────────────────────────────────────────
+function isDoneOnDate(t,fecha){
+  if(!t.tipo||t.tipo==='normal')return t.estado==='Finalizado';
+  if(t.tipo==='recurring')return(t.recur_log||[]).some(l=>l.fecha===fecha&&l.completado);
+  if(t.tipo==='timed'){
+    const h=((t.horas_log||[]).find(l=>l.fecha===fecha)||{}).horas||0;
+    return h>=(t.horas_dia||1);
+  }
+  return false;
+}
+
+// ── marcarDiaRecurrente ────────────────────────────────────────────────────────
+function marcarDiaRecurrente(id,fecha,done=true){
+  const arr=getTareas();const t=arr.find(x=>x.id===id);if(!t)return;
+  if(!t.recur_log)t.recur_log=[];
+  const entry=t.recur_log.find(l=>l.fecha===fecha);
+  if(entry){entry.completado=done;}
+  else if(done){t.recur_log.push({fecha,completado:true});}
+  t._ts=Date.now();
+  setTareas(arr);
+  if(curMod==='tareas')renderContent();renderAlerts();
+  toast(done?'✅ ¡Hecho por hoy! Vuelve mañana 🔄':'↩ Marcada como pendiente','green');
+}
+
+// ── logHorasDiaEsp ─────────────────────────────────────────────────────────────
+function logHorasDiaEsp(id,fecha,horas){
+  const arr=getTareas();const t=arr.find(x=>x.id===id);if(!t)return;
+  if(!t.horas_log)t.horas_log=[];
+  const h=parseFloat(horas)||t.horas_dia||1;
+  const entry=t.horas_log.find(l=>l.fecha===fecha);
+  if(entry){entry.horas=(entry.horas||0)+h;}
+  else{t.horas_log.push({fecha,horas:h});}
+  const total=t.horas_log.reduce((s,l)=>s+(l.horas||0),0);
+  t._ts=Date.now();
+  if(total>=(t.horas_total||99999)){t.estado='Finalizado';toast('🎉 ¡Completado! '+total+'h en total','green');}
+  else{toast('⏱ +'+h+'h registrada ('+fecha+') — '+total+'/'+(t.horas_total||'?')+'h total','green');}
+  setTareas(arr);
+  if(curMod==='tareas')renderContent();renderAlerts();
+}
+
+// ── renderKanbanMes ────────────────────────────────────────────────────────────
+function renderKanbanMes(tareas,filter){
+  const PRIO_O={Alta:0,Media:1,Baja:2};
+  const DIAS=['Lun','Mar','Mié','Jue','Vie','Sáb','Dom'];
+  const MESES=['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
+  const now=new Date();
+  const base=new Date(now.getFullYear(),now.getMonth()+_kanbanMesOffset,1);
+  const yr=base.getFullYear(),mo=base.getMonth();
+  const firstDay=new Date(yr,mo,1),lastDay=new Date(yr,mo+1,0);
+  const startDow=(firstDay.getDay()+6)%7;
+  const daysInMonth=lastDay.getDate();
+  const today=isoHoy();
+  const allDays=[];
+  for(let d=1;d<=daysInMonth;d++)allDays.push(yr+'-'+String(mo+1).padStart(2,'0')+'-'+String(d).padStart(2,'0'));
+
+  const byDay={};
+  allDays.forEach(d=>{byDay[d]=[];});
+  let cards=[...tareas];
+  if(!showFinaliz)cards=cards.filter(t=>t.estado!=='Finalizado');
+  if(filter&&filter!=='all'&&filter!=='member')cards=cards.filter(t=>t.space===filter);
+  if(filter==='member')cards=cards.filter(t=>teamMembers.some(m=>m.member_id===t.assigned_to||m.member_id===t.user_id));
+
+  cards.forEach(t=>{
+    if(!t.tipo||t.tipo==='normal'){
+      if(t.fecha&&byDay[t.fecha]!==undefined)byDay[t.fecha].push({task:t,fecha:t.fecha});
+    }else{
+      const start=t.fecha_inicio||t.fecha;
+      const end=t.fecha_fin||t.fecha_inicio||t.fecha;
+      allDays.forEach(d=>{
+        if(start&&end&&d>=start&&d<=end)byDay[d].push({task:t,fecha:d});
+        else if(start&&!end&&d===start)byDay[d].push({task:t,fecha:d});
+        else if(!start&&t.fecha&&d===t.fecha)byDay[d].push({task:t,fecha:d});
+      });
+    }
+  });
+  allDays.forEach(d=>{byDay[d].sort((a,b)=>(PRIO_O[a.task.prio]||1)-(PRIO_O[b.task.prio]||1));});
+
+  const navStyle='padding:6px 12px;border-radius:8px;border:1.5px solid var(--border2);background:#fff;font-size:13px;font-weight:600;cursor:pointer;color:var(--t1)';
+  let cells='';
+  for(let i=0;i<startDow;i++)cells+='<div></div>';
+  allDays.forEach(iso=>{
+    const dn=parseInt(iso.split('-')[2]);
+    const isToday=iso===today;
+    const dc=byDay[iso]||[];
+    const vis=dc.slice(0,3);const extra=dc.length-vis.length;
+    cells+=`<div class="k-mes-cell${isToday?' hoy':''}">
+      <div style="font-size:11px;font-weight:${isToday?700:500};color:${isToday?'#7c3aed':'var(--t2)'};margin-bottom:3px;display:flex;justify-content:space-between;align-items:center">
+        <span>${dn}</span>${dc.length?`<span style="font-size:10px;color:var(--t3)">${dc.length}</span>`:''}
+      </div>
+      ${vis.map(item=>renderMesCard(item.task,item.fecha)).join('')}
+      ${extra>0?`<div style="font-size:9px;color:var(--t3);margin-top:1px">+${extra} más</div>`:''}
+      <button onclick="calNuevaTarea('${iso}')" style="width:100%;border:none;background:none;color:var(--t3);font-size:10px;cursor:pointer;padding:1px 0;text-align:center;margin-top:2px">＋</button>
+    </div>`;
+  });
+
+  return`<div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
+    <button onclick="_kanbanMesOffset--;renderContent()" style="${navStyle}">‹</button>
+    <span style="font-size:15px;font-weight:700;flex:1;text-align:center">${MESES[mo]} ${yr}</span>
+    <button onclick="_kanbanMesOffset=0;renderContent()" style="padding:4px 10px;border-radius:8px;border:1.5px solid var(--border2);background:#fff;font-size:12px;cursor:pointer;color:var(--t2)">Hoy</button>
+    <button onclick="_kanbanMesOffset++;renderContent()" style="${navStyle}">›</button>
+  </div>
+  <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:3px;margin-bottom:4px">
+    ${DIAS.map(d=>`<div style="text-align:center;font-size:10px;font-weight:700;color:var(--t3);text-transform:uppercase;padding:4px 0;letter-spacing:.05em">${d}</div>`).join('')}
+  </div>
+  <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:3px">
+    ${cells}
+  </div>`;
+}
+
+function renderMesCard(t,fecha){
+  const pc=PRIO_C[t.prio]||'#888';
+  const done=isDoneOnDate(t,fecha);
+  const isFin=t.estado==='Finalizado';
+  return`<button class="k-mes-mini${done||isFin?' done':''}" style="border-left-color:${done||isFin?'#1a9e72':pc}" onclick="event.stopPropagation();abrirTarea('${t.id}')">
+    <span style="${done||isFin?'text-decoration:line-through;color:var(--t3)':'color:var(--t1)'}">${done||isFin?'✓ ':''}${esc(t.titulo.slice(0,18))}${t.titulo.length>18?'…':''}</span>
+    ${t.tipo!=='normal'&&!done&&!isFin?`<span style="font-size:9px;color:#7c3aed"> ${t.tipo==='recurring'?'🔄':'⏱'}</span>`:''}
+  </button>`;
 }
 
 window.onload=()=>{ initAuth(); };
@@ -1162,10 +1316,12 @@ function buildTareas(){
   const tareas=getTareas();
   const memberFilter=teamMembers.length?`<button onclick="setKanbanFilter('member',this)" style="padding:5px 12px;border-radius:20px;border:1.5px solid #0ea5e9;background:rgba(14,165,233,.1);color:#0ea5e9;font-size:12.5px;font-weight:600;cursor:pointer">👤 ${teamMembers[0]?.member_name||'Martin'}</button>`:'';
   const finToggle=`<label style="display:flex;align-items:center;gap:5px;font-size:12px;color:var(--t3);cursor:pointer;user-select:none">
-    <input type="checkbox" ${showFinaliz?'checked':''} onchange="showFinaliz=this.checked;document.getElementById('kanban-wrap').innerHTML=kanbanMode==='semana'?renderKanbanSemana(getTareas(),kanbanFilter):renderKanban(getTareas(),kanbanFilter)"> Ver finalizadas</label>`;
+    <input type="checkbox" ${showFinaliz?'checked':''} onchange="showFinaliz=this.checked;document.getElementById('kanban-wrap').innerHTML=kanbanMode==='semana'?renderKanbanSemana(getTareas(),kanbanFilter):kanbanMode==='mes'?renderKanbanMes(getTareas(),kanbanFilter):renderKanban(getTareas(),kanbanFilter)"> Ver finalizadas</label>`;
+  const _km=kanbanMode;
   const viewToggle=`<div style="display:flex;gap:3px;background:rgba(0,0,0,.06);border-radius:8px;padding:3px">
-    <button onclick="kanbanMode='estado';document.getElementById('kanban-wrap').innerHTML=renderKanban(getTareas(),kanbanFilter)" style="padding:4px 10px;border-radius:6px;border:none;font-size:12px;font-weight:600;cursor:pointer;background:${kanbanMode==='estado'?'#fff':'none'};color:${kanbanMode==='estado'?'#1a1916':'var(--t3)'}">📋 Estado</button>
-    <button onclick="kanbanMode='semana';document.getElementById('kanban-wrap').innerHTML=renderKanbanSemana(getTareas(),kanbanFilter)" style="padding:4px 10px;border-radius:6px;border:none;font-size:12px;font-weight:600;cursor:pointer;background:${kanbanMode==='semana'?'#fff':'none'};color:${kanbanMode==='semana'?'#1a1916':'var(--t3)'}">📅 Semana</button>
+    <button onclick="kanbanMode='estado';renderContent()" style="padding:4px 10px;border-radius:6px;border:none;font-size:12px;font-weight:600;cursor:pointer;background:${_km==='estado'?'#fff':'none'};color:${_km==='estado'?'#1a1916':'var(--t3)'}">📋 Estado</button>
+    <button onclick="kanbanMode='semana';renderContent()" style="padding:4px 10px;border-radius:6px;border:none;font-size:12px;font-weight:600;cursor:pointer;background:${_km==='semana'?'#fff':'none'};color:${_km==='semana'?'#1a1916':'var(--t3)'}">📅 Semana</button>
+    <button onclick="kanbanMode='mes';renderContent()" style="padding:4px 10px;border-radius:6px;border:none;font-size:12px;font-weight:600;cursor:pointer;background:${_km==='mes'?'#fff':'none'};color:${_km==='mes'?'#1a1916':'var(--t3)'}">🗓 Mes</button>
   </div>`;
   return`<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;flex-wrap:wrap;gap:8px">
     <div style="display:flex;gap:8px;align-items:center">${viewToggle}${finToggle}</div>
@@ -1176,12 +1332,12 @@ function buildTareas(){
     ${SPACES.map(s=>`<button onclick="setKanbanFilter('${s.id}',this)" style="padding:5px 12px;border-radius:20px;border:1.5px solid ${s.color};background:${s.bg};color:${s.color};font-size:12.5px;font-weight:600;cursor:pointer">${s.emoji} ${s.name}</button>`).join('')}
     ${memberFilter}
   </div>`:''}
-  <div id="kanban-wrap">${kanbanMode==='semana'?renderKanbanSemana(tareas,kanbanFilter):renderKanban(tareas,kanbanFilter)}</div>`;
+  <div id="kanban-wrap">${kanbanMode==='semana'?renderKanbanSemana(tareas,kanbanFilter):kanbanMode==='mes'?renderKanbanMes(tareas,kanbanFilter):renderKanban(tareas,kanbanFilter)}</div>`;
 }
 
 function setKanbanFilter(f,btn){
   kanbanFilter=f;
-  document.getElementById('kanban-wrap').innerHTML=kanbanMode==='semana'?renderKanbanSemana(getTareas(),f):renderKanban(getTareas(),f);
+  document.getElementById('kanban-wrap').innerHTML=kanbanMode==='semana'?renderKanbanSemana(getTareas(),f):kanbanMode==='mes'?renderKanbanMes(getTareas(),f):renderKanban(getTareas(),f);
 }
 
 function renderKanban(tareas,filter){
@@ -1212,7 +1368,7 @@ function renderKanban(tareas,filter){
             else if(d===1){vt='Mañana';vc='hoy';}
             else{vt=fmtD(t.fecha);}
           }
-          return`<div class="k-card${isFin?' k-fin':''}" style="border-left-color:${pc}" onclick="abrirTarea('${t.id}')">
+          return`<div class="k-card${isFin?' k-fin':''}" style="border-left-color:${isFin?'#1a9e72':pc}" onclick="abrirTarea('${t.id}')">
             ${t.tipo==='recurring'?`<span class="tipo-badge" style="background:rgba(124,58,237,.1);color:#7c3aed">🔄 Diaria ${t.duracion_min||0}min</span>`:''}
             ${t.tipo==='timed'?`<span class="tipo-badge" style="background:rgba(14,165,233,.1);color:#0ea5e9">⏱ Con horas</span>`:''}
             <div class="k-card-ttl">${esc(t.titulo)}</div>
@@ -1224,6 +1380,7 @@ function renderKanban(tareas,filter){
               ${assignee?`<span class="badge" style="background:rgba(14,165,233,.1);color:#0ea5e9;font-size:10px">👤 ${esc(assignee.member_name)}</span>`:''}
             </div>
             ${vt?`<div class="k-vence ${vc}">📅 ${vt}</div>`:''}
+            ${isFin?`<div class="k-done-overlay">✓ Finalizada</div>`:''}
           </div>`;}).join('')}
         <button class="k-btn-add" onclick="nuevaTarea('${est}','${curSpace}')">+ Agregar aquí</button>
       </div>`;
@@ -1266,7 +1423,11 @@ function abrirTarea(id){
     </div>`:''}
     ${t.tipo==='recurring'?`<div style="background:#f8f7f4;border-radius:10px;padding:10px;margin-bottom:12px;font-size:13px">
       🔄 Tarea diaria de <strong>${t.duracion_min||0} minutos</strong>
-      ${t.recur_completado?`· Hecha el ${fmtD(t.recur_completado)}`:''}
+      ${t.fecha_inicio?` · Del ${fmtD(t.fecha_inicio)} al ${fmtD(t.fecha_fin||t.fecha_inicio)}`:''}
+      <div style="margin-top:8px">${isDoneOnDate(t,isoHoy())?
+        `<div class="k-done-overlay">✓ Hecha hoy · <button onclick="marcarDiaRecurrente('${id}',isoHoy(),false);abrirTarea('${id}')" style="border:none;background:none;color:#1a9e72;cursor:pointer;font-weight:700;font-size:12px">Desmarcar</button></div>`:
+        `<button onclick="marcarDiaRecurrente('${id}',isoHoy());abrirTarea('${id}')" style="width:100%;padding:7px;border:1.5px solid #1a9e72;border-radius:8px;background:none;color:#1a9e72;font-size:13px;font-weight:700;cursor:pointer">✓ Marcar hecho hoy</button>`}
+      </div>
     </div>`:''}
     <div class="fg fg2">
       <div><label class="lbl">Espacio</label>
@@ -1358,12 +1519,20 @@ function nuevaTarea(estado,space){
     </div>
     <div id="nt-recur-fields" style="display:none;margin-bottom:8px">
       <label class="lbl">Duración (minutos)</label>
-      <input type="number" id="nt-duracion" placeholder="Ej: 30" min="1">
+      <input type="number" id="nt-duracion" placeholder="Ej: 30" min="1" style="margin-bottom:8px">
+      <div class="fg fg2">
+        <div><label class="lbl">Fecha inicio</label><input type="date" id="nt-finicio"></div>
+        <div><label class="lbl">Fecha fin</label><input type="date" id="nt-ffin"></div>
+      </div>
     </div>
     <div id="nt-timed-fields" style="display:none">
       <div class="fg fg2" style="margin-bottom:8px">
         <div><label class="lbl">Total horas</label><input type="number" id="nt-htotal" placeholder="Ej: 5" min="0.5" step="0.5"></div>
         <div><label class="lbl">Horas por día</label><input type="number" id="nt-hdia" placeholder="Ej: 1" min="0.5" step="0.5"></div>
+      </div>
+      <div class="fg fg2" style="margin-bottom:8px">
+        <div><label class="lbl">Fecha inicio</label><input type="date" id="nt-finicio2"></div>
+        <div><label class="lbl">Fecha fin</label><input type="date" id="nt-ffin2"></div>
       </div>
     </div>
     ${userRole==='admin'&&teamMembers.length?`<div class="fg" style="margin-bottom:8px">
@@ -1404,9 +1573,12 @@ function crearTarea(){
     duracion_min:tipo==='recurring'?parseInt(document.getElementById('nt-duracion')?.value)||null:null,
     recur:tipo==='recurring'?'daily':null,
     recur_completado:null,
+    recur_log:[],
     horas_total:tipo==='timed'?parseFloat(document.getElementById('nt-htotal')?.value)||null:null,
     horas_dia:tipo==='timed'?parseFloat(document.getElementById('nt-hdia')?.value)||null:null,
-    horas_log:[]});
+    horas_log:[],
+    fecha_inicio:tipo==='recurring'?(document.getElementById('nt-finicio')?.value||null):(tipo==='timed'?(document.getElementById('nt-finicio2')?.value||null):null),
+    fecha_fin:tipo==='recurring'?(document.getElementById('nt-ffin')?.value||null):(tipo==='timed'?(document.getElementById('nt-ffin2')?.value||null):null)});
   setTareas(arr);closeModal();
   if(curMod==='tareas')renderContent();
   renderAlerts();toast('✅ Tarea creada','green');
