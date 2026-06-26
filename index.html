@@ -283,7 +283,7 @@ async function pullFromSupabase(){
       sb.from('gastos').select('*').eq('user_id',uid),
       sb.from('vencimientos').select('*').eq('user_id',uid),
       (()=>{
-        if(userRole==='member')return sb.from('tareas').select('*').or('user_id.eq.'+uid+',assigned_to.eq.'+uid);
+        if(userRole==='member')return sb.from('tareas').select('*').or('user_id.eq.'+uid+',assigned_to.eq.'+uid+',assignees.cs.["'+uid+'"]');
         const mids=teamMembers.map(m=>m.member_id);
         return mids.length?sb.from('tareas').select('*').in('user_id',[uid,...mids]):sb.from('tareas').select('*').eq('user_id',uid);
       })(),
@@ -343,8 +343,8 @@ async function pullFromSupabase(){
     });
     mergeTable(
       lsLoad('ms2_tareas'),t||[],
-      r=>({id:r.id,titulo:r.titulo,space:r.espacio,estado:r.estado||'Sin hacer',prio:r.prio||'Media',fecha:r.fecha||'',desc:r.descripcion||'',creada:r.creada||'',user_id:r.user_id,assigned_to:r.assigned_to||null,tipo:r.tipo||'normal',duracion_min:r.duracion_min||null,recur:r.recur||null,recur_completado:r.recur_completado||null,horas_total:r.horas_total||null,horas_dia:r.horas_dia||null,horas_log:r.horas_log||[],fecha_inicio:r.fecha_inicio||null,fecha_fin:r.fecha_fin||null,recur_log:r.recur_log||[],orden:r.orden??null}),
-      (x,u)=>({id:x.id,user_id:x.user_id||u,espacio:x.space,titulo:x.titulo,estado:x.estado||'Sin hacer',prio:x.prio||'Media',fecha:x.fecha||null,descripcion:x.desc||'',creada:x.creada,assigned_to:x.assigned_to||null,tipo:x.tipo||'normal',duracion_min:x.duracion_min||null,recur:x.recur||null,recur_completado:x.recur_completado||null,horas_total:x.horas_total||null,horas_dia:x.horas_dia||null,horas_log:x.horas_log||[],fecha_inicio:x.fecha_inicio||null,fecha_fin:x.fecha_fin||null,recur_log:x.recur_log||[],orden:x.orden??null,updated_at:new Date(x._ts||Date.now()).toISOString()}),
+      r=>({id:r.id,titulo:r.titulo,space:r.espacio,estado:r.estado||'Sin hacer',prio:r.prio||'Media',fecha:r.fecha||'',desc:r.descripcion||'',creada:r.creada||'',user_id:r.user_id,assigned_to:r.assigned_to||null,tipo:r.tipo||'normal',duracion_min:r.duracion_min||null,recur:r.recur||null,recur_completado:r.recur_completado||null,horas_total:r.horas_total||null,horas_dia:r.horas_dia||null,horas_log:r.horas_log||[],fecha_inicio:r.fecha_inicio||null,fecha_fin:r.fecha_fin||null,recur_log:r.recur_log||[],orden:r.orden??null,assignees:r.assignees||[],assignee_statuses:r.assignee_statuses||[],comments:r.comments||[]}),
+      (x,u)=>({id:x.id,user_id:x.user_id||u,espacio:x.space,titulo:x.titulo,estado:x.estado||'Sin hacer',prio:x.prio||'Media',fecha:x.fecha||null,descripcion:x.desc||'',creada:x.creada,assigned_to:x.assigned_to||null,tipo:x.tipo||'normal',duracion_min:x.duracion_min||null,recur:x.recur||null,recur_completado:x.recur_completado||null,horas_total:x.horas_total||null,horas_dia:x.horas_dia||null,horas_log:x.horas_log||[],fecha_inicio:x.fecha_inicio||null,fecha_fin:x.fecha_fin||null,recur_log:x.recur_log||[],orden:x.orden??null,assignees:x.assignees||[],assignee_statuses:x.assignee_statuses||[],comments:x.comments||[],updated_at:new Date(x._ts||Date.now()).toISOString()}),
       'ms2_tareas','tareas'
     );
     SIDS.forEach(sp=>{
@@ -664,6 +664,68 @@ function getWeekDays(offset){
   return Array.from({length:7},(_,i)=>{const d=new Date(mon);d.setDate(mon.getDate()+i);return d.toISOString().split('T')[0];});
 }
 
+// ── getUserName: returns display name for a user ID
+function getUserName(uid){
+  if(!uid)return'?';
+  if(uid===sbUser?.id)return(sbUser?.email||'').split('@')[0]||'Yo';
+  const m=teamMembers.find(m=>m.member_id===uid);
+  return m?.member_name||'Usuario';
+}
+// ── getTaskAssignees: returns all assignee UIDs (new + legacy)
+function getTaskAssignees(t){
+  const ids=new Set(t.assignees||[]);
+  if(t.assigned_to)ids.add(t.assigned_to);
+  return[...ids];
+}
+// ── setMiEstado: member sets their personal status; recomputes global
+function setMiEstado(id,estado){
+  const arr=getTareas();const t=arr.find(x=>x.id===id);if(!t)return;
+  const myId=sbUser?.id;
+  if(!t.assignee_statuses)t.assignee_statuses=[];
+  const entry=t.assignee_statuses.find(s=>s.user_id===myId);
+  if(entry)entry.estado=estado;
+  else t.assignee_statuses.push({user_id:myId,nombre:getUserName(myId),estado});
+  // recompute global estado from all assignees
+  const ids=getTaskAssignees(t);
+  if(ids.length>0){
+    const allDone=ids.every(uid=>(t.assignee_statuses.find(s=>s.user_id===uid)||{}).estado==='Finalizado');
+    const anyProgress=ids.some(uid=>(t.assignee_statuses.find(s=>s.user_id===uid)||{}).estado==='En curso');
+    t.estado=allDone?'Finalizado':anyProgress?'En curso':'Sin hacer';
+  }
+  t._ts=Date.now();setTareas(arr);
+  if(curMod==='tareas')renderContent();renderAlerts();
+  abrirTarea(id);
+  toast('✅ Estado actualizado','green');
+}
+// ── toggleAssignee: admin adds/removes a person from task assignees
+function toggleAssignee(id,uid){
+  const arr=getTareas();const t=arr.find(x=>x.id===id);if(!t)return;
+  if(!t.assignees)t.assignees=[];
+  if(!t.assignee_statuses)t.assignee_statuses=[];
+  const idx=t.assignees.indexOf(uid);
+  if(idx>=0){
+    t.assignees.splice(idx,1);
+    t.assignee_statuses=t.assignee_statuses.filter(s=>s.user_id!==uid);
+  }else{
+    t.assignees.push(uid);
+    if(!t.assignee_statuses.find(s=>s.user_id===uid))
+      t.assignee_statuses.push({user_id:uid,nombre:getUserName(uid),estado:'Sin hacer'});
+  }
+  t._ts=Date.now();setTareas(arr);
+  abrirTarea(id);
+}
+// ── addComment: add a comment with attribution
+function addComment(id){
+  const el=document.getElementById('comment-input-'+id);
+  if(!el||!el.value.trim())return;
+  const arr=getTareas();const t=arr.find(x=>x.id===id);if(!t)return;
+  if(!t.comments)t.comments=[];
+  t.comments.push({user_id:sbUser?.id,nombre:getUserName(sbUser?.id),texto:el.value.trim(),fecha:new Date().toISOString()});
+  t._ts=Date.now();setTareas(arr);
+  abrirTarea(id);
+  toast('💬 Comentario agregado','green');
+}
+
 // ── getLastMissedDate: returns the most recent past date a task was scheduled but not done
 function getLastMissedDate(t){
   const today=isoHoy();
@@ -706,14 +768,20 @@ function renderKanbanSemana(tareas,filter){
   if(!showFinaliz)cards=cards.filter(t=>t.estado!=='Finalizado'&&!(t.tipo==='recurring'&&isDoneOnDate(t,today)));
   if(filter!=='all'&&filter!=='member')cards=cards.filter(t=>!teamMembers.some(m=>m.member_id===t.user_id));
   if(filter&&filter!=='all'&&filter!=='member'&&filter!=='own')cards=cards.filter(t=>t.space===filter);
-  if(filter==='member')cards=cards.filter(t=>teamMembers.some(m=>m.member_id===t.assigned_to||m.member_id===t.user_id));
+  if(filter==='member')cards=cards.filter(t=>teamMembers.some(m=>m.member_id===t.assigned_to||m.member_id===t.user_id||(t.assignees||[]).includes(m.member_id)));
+  if(filter.startsWith('mb_')){const muid=filter.slice(3);cards=cards.filter(t=>t.assigned_to===muid||t.user_id===muid||(t.assignees||[]).includes(muid));}
+  // Exclude tasks assigned only to others
+  if(sbUser&&filter!=='all'&&filter!=='member'&&!filter.startsWith('mb_')){
+    const myUid=sbUser.id;
+    cards=cards.filter(t=>{const ids=getTaskAssignees(t);return ids.length===0||ids.includes(myUid);});
+  }
 
   const esHabil=iso=>{const dow=(new Date(iso+'T12:00:00').getDay()+6)%7;return dow<5;};
   cards.forEach(t=>{
     if(!t.tipo||t.tipo==='normal'){
       if(t.fecha&&byDay[t.fecha]!==undefined){byDay[t.fecha].push({task:t,fecha:t.fecha});}
-      else if(t.fecha&&t.fecha<days[0]){byDay[days[0]].push({task:t,fecha:days[0]});}
       else if(!t.fecha){noDat.push({task:t,fecha:null});}
+      else if(t.fecha&&t.fecha<days[0]){noDat.push({task:t,fecha:t.fecha});} // past-dated: show at bottom
     }else{
       // recurring/timed: show on each day in range (null fecha_fin = sin límite)
       days.forEach(d=>{
@@ -770,7 +838,7 @@ function renderKanbanSemana(tareas,filter){
       </div>`;
     }).join('')}
   </div></div>
-  ${noDat.length?`<div style="margin-top:12px"><div style="font-size:11px;font-weight:700;color:var(--t3);text-transform:uppercase;letter-spacing:.07em;margin-bottom:6px">Sin fecha (${noDat.length})</div>
+  ${noDat.length?`<div style="margin-top:12px"><div style="font-size:11px;font-weight:700;color:var(--t3);text-transform:uppercase;letter-spacing:.07em;margin-bottom:6px">${noDat.some(i=>i.task.fecha)?'Pendientes':'Sin fecha'} (${noDat.length})</div>
   <div style="display:flex;gap:6px;flex-wrap:wrap">${noDat.map(item=>`<div class="k-card" style="border-left-color:${PRIO_C[item.task.prio]||'#888'};width:170px;flex-shrink:0" onclick="abrirTarea('${item.task.id}')"><div class="k-card-ttl">${esc(item.task.titulo)}</div><div style="font-size:10px;color:var(--t3);margin-top:2px">${SMAP[item.task.space]?.name||''} · ${item.task.prio}</div></div>`).join('')}</div></div>`:''}`;
 }
 
@@ -781,7 +849,8 @@ function renderWeekCard(t,fecha,overdue){
   const horasAcum=t.tipo==='timed'?(t.horas_log||[]).reduce((s,l)=>s+(l.horas||0),0):0;
   const horasHoy=t.tipo==='timed'?(t.horas_log||[]).find(l=>l.fecha===fecha)?.horas||0:0;
   const pct=t.tipo==='timed'&&t.horas_total?Math.min(100,Math.round(horasAcum/t.horas_total*100)):0;
-  const assignee=teamMembers.find(m=>m.member_id===t.assigned_to);
+  const taskAssigneesW=getTaskAssignees(t);
+  const assigneeNames=taskAssigneesW.filter(uid=>uid!==t.user_id||taskAssigneesW.length>1).map(uid=>getUserName(uid)).slice(0,3);
   const borderC=overdue?'#c07810':(done?'#1a9e72':pc);
   let actionBtn='';
   if(t.tipo==='recurring'){
@@ -817,7 +886,7 @@ function renderWeekCard(t,fecha,overdue){
     <div class="k-card-meta" style="margin:3px 0">
       <span style="width:5px;height:5px;border-radius:50%;background:${sp.color};display:inline-block"></span>
       <span style="font-size:10px;color:${sp.color};font-weight:600">${sp.name}</span>
-      ${assignee?`<span class="badge" style="font-size:9px;background:rgba(14,165,233,.1);color:#0ea5e9">${esc(assignee.member_name)}</span>`:''}
+      ${assigneeNames.length?`<span class="badge" style="font-size:9px;background:rgba(14,165,233,.1);color:#0ea5e9">👥 ${assigneeNames.map(n=>esc(n)).join(', ')}</span>`:''}
     </div>
     ${actionBtn}
     <div style="display:flex;justify-content:flex-end;gap:3px;margin-top:4px" onclick="event.stopPropagation()">
@@ -927,7 +996,13 @@ function renderKanbanMes(tareas,filter){
   if(!showFinaliz)cards=cards.filter(t=>t.estado!=='Finalizado');
   if(filter!=='all'&&filter!=='member')cards=cards.filter(t=>!teamMembers.some(m=>m.member_id===t.user_id));
   if(filter&&filter!=='all'&&filter!=='member'&&filter!=='own')cards=cards.filter(t=>t.space===filter);
-  if(filter==='member')cards=cards.filter(t=>teamMembers.some(m=>m.member_id===t.assigned_to||m.member_id===t.user_id));
+  if(filter==='member')cards=cards.filter(t=>teamMembers.some(m=>m.member_id===t.assigned_to||m.member_id===t.user_id||(t.assignees||[]).includes(m.member_id)));
+  if(filter.startsWith('mb_')){const muid=filter.slice(3);cards=cards.filter(t=>t.assigned_to===muid||t.user_id===muid||(t.assignees||[]).includes(muid));}
+  // Exclude tasks assigned only to others
+  if(sbUser&&filter!=='all'&&filter!=='member'&&!filter.startsWith('mb_')){
+    const myUid=sbUser.id;
+    cards=cards.filter(t=>{const ids=getTaskAssignees(t);return ids.length===0||ids.includes(myUid);});
+  }
 
   cards.forEach(t=>{
     if(!t.tipo||t.tipo==='normal'){
@@ -1449,10 +1524,11 @@ function buildTareas(){
       <button onclick="setKanbanFilter('own',this)" style="padding:5px 12px;border-radius:20px;border:1.5px solid #1a1916;font-size:12.5px;font-weight:600;cursor:pointer;background:${kanbanFilter==='own'||(!['all','member'].includes(kanbanFilter)&&kanbanFilter!=='own')?'#1a1916':'#fff'};color:${kanbanFilter==='own'||(!['all','member'].includes(kanbanFilter)&&kanbanFilter!=='own')?'#fff':'#1a1916'}">Mis tareas</button>
       ${SPACES.map(s=>`<button onclick="setKanbanFilter('${s.id}',this)" style="padding:5px 12px;border-radius:20px;border:1.5px solid ${s.color};font-size:12.5px;font-weight:600;cursor:pointer;background:${kanbanFilter===s.id?s.color:s.bg};color:${kanbanFilter===s.id?'#fff':s.color}">${s.emoji} ${s.name}</button>`).join('')}
     </div>
-    ${teamMembers.length?`<div style="display:flex;gap:5px;align-items:center;padding:6px 10px;background:rgba(14,165,233,.06);border-radius:10px;border:1px solid rgba(14,165,233,.2)">
-      <span style="font-size:11px;color:#0ea5e9;font-weight:700;text-transform:uppercase;letter-spacing:.05em">Equipo</span>
-      <button onclick="setKanbanFilter('member',this)" style="padding:4px 12px;border-radius:20px;border:1.5px solid #0ea5e9;font-size:12.5px;font-weight:600;cursor:pointer;background:${kanbanFilter==='member'?'#0ea5e9':'rgba(14,165,233,.1)'};color:${kanbanFilter==='member'?'#fff':'#0ea5e9'}">👤 ${teamMembers[0]?.member_name||'Martin'}</button>
-      <button onclick="setKanbanFilter('all',this)" style="padding:4px 12px;border-radius:20px;border:1.5px solid #888;font-size:12px;font-weight:600;cursor:pointer;background:${kanbanFilter==='all'?'#888':'rgba(0,0,0,.06)'};color:${kanbanFilter==='all'?'#fff':'#888'}">Todos</button>
+    ${teamMembers.length?`<div style="display:flex;gap:5px;align-items:center;flex-wrap:wrap;padding:6px 10px;background:rgba(14,165,233,.06);border-radius:10px;border:1px solid rgba(14,165,233,.2)">
+      <span style="font-size:11px;color:#0ea5e9;font-weight:700;text-transform:uppercase;letter-spacing:.05em;flex-shrink:0">Equipo</span>
+      ${teamMembers.map(m=>`<button onclick="setKanbanFilter('mb_${m.member_id}',this)" style="padding:4px 12px;border-radius:20px;border:1.5px solid #0ea5e9;font-size:12px;font-weight:600;cursor:pointer;background:${kanbanFilter==='mb_'+m.member_id?'#0ea5e9':'rgba(14,165,233,.1)'};color:${kanbanFilter==='mb_'+m.member_id?'#fff':'#0ea5e9'}">👤 ${esc(m.member_name)}</button>`).join('')}
+      <button onclick="setKanbanFilter('member',this)" style="padding:4px 12px;border-radius:20px;border:1.5px solid #888;font-size:12px;font-weight:600;cursor:pointer;background:${kanbanFilter==='member'?'#888':'rgba(0,0,0,.06)'};color:${kanbanFilter==='member'?'#fff':'#888'}">Todos</button>
+      <button onclick="setKanbanFilter('all',this)" style="padding:4px 12px;border-radius:20px;border:1.5px solid #555;font-size:12px;font-weight:600;cursor:pointer;background:${kanbanFilter==='all'?'#555':'rgba(0,0,0,.04)'};color:${kanbanFilter==='all'?'#fff':'#555'}">+ míos</button>
     </div>`:''}
   </div>`:''}
   <div id="kanban-wrap">${kanbanMode==='semana'?renderKanbanSemana(tareas,kanbanFilter):kanbanMode==='mes'?renderKanbanMes(tareas,kanbanFilter):renderKanban(tareas,kanbanFilter)}</div>`;
@@ -1470,7 +1546,13 @@ function renderKanban(tareas,filter){
       let cards=tareas.filter(t=>t.estado===est);
       if(filter!=='all'&&filter!=='member')cards=cards.filter(t=>!teamMembers.some(m=>m.member_id===t.user_id));
       if(filter&&filter!=='all'&&filter!=='member'&&filter!=='own')cards=cards.filter(t=>t.space===filter);
-      if(filter==='member')cards=cards.filter(t=>teamMembers.some(m=>m.member_id===t.assigned_to||m.member_id===t.user_id));
+      // Exclude tasks assigned only to others (not to current user)
+  if(sbUser&&filter!=='all'&&filter!=='member'&&!filter.startsWith('mb_')){
+    const myUid=sbUser.id;
+    cards=cards.filter(t=>{const ids=getTaskAssignees(t);return ids.length===0||ids.includes(myUid);});
+  }
+      if(filter==='member')cards=cards.filter(t=>teamMembers.some(m=>m.member_id===t.assigned_to||m.member_id===t.user_id||(t.assignees||[]).includes(m.member_id)));
+  if(filter.startsWith('mb_')){const muid=filter.slice(3);cards=cards.filter(t=>t.assigned_to===muid||t.user_id===muid||(t.assignees||[]).includes(muid));}
       cards.sort((a,b)=>(PRIO_O[a.prio]||1)-(PRIO_O[b.prio]||1));
       const isFin=est==='Finalizado';
       const estIdx=ESTADOS.indexOf(est);
@@ -1482,7 +1564,8 @@ function renderKanban(tareas,filter){
         ${cards.map(t=>{
           const sp=SMAP[t.space]||SPACES[0];
           const pc=PRIO_C[t.prio]||'#888';
-          const assignee=teamMembers.find(m=>m.member_id===t.assigned_to);
+          const taskAssigneesK=getTaskAssignees(t);
+          const assigneeNamesK=taskAssigneesK.filter(uid=>uid!==t.user_id||taskAssigneesK.length>1).map(uid=>getUserName(uid)).slice(0,2);
           const horasAcum=t.tipo==='timed'?(t.horas_log||[]).reduce((s,l)=>s+(l.horas||0),0):0;
           const progPct=t.tipo==='timed'&&t.horas_total?Math.min(100,Math.round(horasAcum/t.horas_total*100)):0;
           let vt='',vc='';
@@ -1501,7 +1584,7 @@ function renderKanban(tareas,filter){
               <span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:${sp.color}"></span>
               <span style="font-size:11.5px;color:${sp.color};font-weight:600">${sp.name}</span>
               <span class="badge" style="background:${pc}18;color:${pc};font-size:11px">${t.prio}</span>
-              ${assignee?`<span class="badge" style="background:rgba(14,165,233,.1);color:#0ea5e9;font-size:10px">👤 ${esc(assignee.member_name)}</span>`:''}
+              ${assigneeNamesK.length?`<span class="badge" style="background:rgba(14,165,233,.1);color:#0ea5e9;font-size:10px">👥 ${assigneeNamesK.map(n=>esc(n)).join(', ')}</span>`:''}
             </div>
             ${vt?`<div class="k-vence ${vc}">📅 ${vt}</div>`:''}
             ${isFin?`<div class="k-done-overlay">✓ Finalizada</div>`:''}
@@ -1517,7 +1600,10 @@ function abrirTarea(id){
   const sp=SMAP[t.space]||SPACES[0];
   const horasAcum=t.tipo==='timed'?(t.horas_log||[]).reduce((s,l)=>s+(l.horas||0),0):0;
   const progPct=t.tipo==='timed'&&t.horas_total?Math.min(100,Math.round(horasAcum/t.horas_total*100)):0;
-  const canEdit=userRole==='admin'||t.assigned_to===sbUser?.id||t.user_id===sbUser?.id;
+  const canEdit=userRole==='admin'||t.assigned_to===sbUser?.id||t.user_id===sbUser?.id||(t.assignees||[]).includes(sbUser?.id);
+  const myId=sbUser?.id;
+  const taskAssignees=getTaskAssignees(t);
+  const myEstado=(t.assignee_statuses||[]).find(s=>s.user_id===myId)?.estado||'Sin hacer';
   openModal(`<div class="modal-handle"></div>
     <div style="margin-bottom:8px">
       <span class="badge" style="background:${sp.bg};color:${sp.color}">${sp.emoji} ${sp.name}</span>
@@ -1525,12 +1611,18 @@ function abrirTarea(id){
       ${t.tipo==='timed'?`<span class="tipo-badge" style="background:rgba(14,165,233,.1);color:#0ea5e9;margin-left:5px">⏱ Con horas</span>`:''}
     </div>
     <div class="modal-ttl">${esc(t.titulo)}</div>
-    <label class="lbl">Estado</label>
+    ${userRole==='admin'?`<label class="lbl">Estado global</label>
     <div class="status-row" style="margin-bottom:12px">
       ${ESTADOS.map((e,i)=>`<button class="status-btn${t.estado===e?' on':''}"
         style="${t.estado===e?`border-color:${ESTADOS_C[i]};background:${ESTADOS_C[i]}18;color:${ESTADOS_C[i]}`:''}"
         onclick="setEstado('${id}','${e}',${i})">${e}</button>`).join('')}
-    </div>
+    </div>`:''}
+    ${taskAssignees.length>0&&userRole==='member'?`<label class="lbl">Mi estado</label>
+    <div class="status-row" style="margin-bottom:12px">
+      ${ESTADOS.map((e,i)=>`<button class="status-btn${myEstado===e?' on':''}"
+        style="${myEstado===e?`border-color:${ESTADOS_C[i]};background:${ESTADOS_C[i]}18;color:${ESTADOS_C[i]}`:''}"
+        onclick="setMiEstado('${id}','${e}')">${e}</button>`).join('')}
+    </div>`:''}
     ${t.tipo==='timed'?`<div style="background:#f8f7f4;border-radius:10px;padding:12px;margin-bottom:12px">
       <div style="font-size:11px;font-weight:700;color:var(--t3);text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px">⏱ Con horas</div>
       <div class="fg fg2" style="margin-bottom:8px">
@@ -1619,20 +1711,47 @@ function abrirTarea(id){
         </select>
       </div>
     </div>
-    ${userRole==='admin'&&teamMembers.length?`<div class="fg" style="margin-bottom:8px">
-      <label class="lbl">Asignado a</label>
-      <select onchange="editTarea('${id}','assigned_to',this.value)">
-        <option value="">— Sin asignar —</option>
-        ${teamMembers.map(m=>`<option value="${m.member_id}"${t.assigned_to===m.member_id?' selected':''}>👤 ${esc(m.member_name)}</option>`).join('')}
-      </select>
+    ${userRole==='admin'&&teamMembers.length?`<div style="background:#f8f7f4;border-radius:10px;padding:12px;margin-bottom:12px">
+      <div style="font-size:11px;font-weight:700;color:var(--t3);text-transform:uppercase;letter-spacing:.05em;margin-bottom:10px">👥 Personas asignadas</div>
+      <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px">
+        ${[{member_id:sbUser?.id,member_name:getUserName(sbUser?.id)+' (vos)'},...teamMembers].map(m=>{
+          const inList=(t.assignees||[]).includes(m.member_id)||(m.member_id===t.assigned_to&&!(t.assignees||[]).length);
+          const st=(t.assignee_statuses||[]).find(s=>s.user_id===m.member_id)?.estado||'Sin hacer';
+          const stColor=st==='Finalizado'?'#1a9e72':st==='En curso'?'#c07810':'#888';
+          return`<label style="display:flex;align-items:center;gap:5px;padding:5px 10px;border-radius:20px;border:1.5px solid ${inList?'#7c3aed':'var(--border2)'};background:${inList?'rgba(124,58,237,.08)':'#fff'};cursor:pointer;font-size:12.5px;font-weight:600;color:${inList?'#7c3aed':'var(--t2)'}">
+            <input type="checkbox" style="display:none" ${inList?'checked':''} onchange="toggleAssignee('${id}','${m.member_id}')">
+            👤 ${esc(m.member_name)}${inList?` <span style="font-size:10px;color:${stColor};margin-left:2px">· ${st}</span>`:''}
+          </label>`;}).join('')}
+      </div>
+      ${taskAssignees.length>0?`<div style="font-size:11px;color:var(--t3)">${taskAssignees.filter(uid=>(t.assignee_statuses||[]).find(s=>s.user_id===uid)?.estado==='Finalizado').length}/${taskAssignees.length} finalizados</div>`:''}
+    </div>`:''}
+    ${taskAssignees.length>0&&userRole!=='admin'?`<div style="background:#f8f7f4;border-radius:10px;padding:12px;margin-bottom:12px">
+      <div style="font-size:11px;font-weight:700;color:var(--t3);text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px">👥 Equipo · ${taskAssignees.filter(uid=>(t.assignee_statuses||[]).find(s=>s.user_id===uid)?.estado==='Finalizado').length}/${taskAssignees.length} listo</div>
+      ${taskAssignees.map(uid=>{const st=(t.assignee_statuses||[]).find(s=>s.user_id===uid)?.estado||'Sin hacer';const stColor=st==='Finalizado'?'#1a9e72':st==='En curso'?'#c07810':'#888';return`<div style="display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid var(--border);font-size:13px"><span>👤 ${esc(getUserName(uid))}</span><span style="font-weight:700;color:${stColor}">${st}</span></div>`;}).join('')}
     </div>`:''}
     <div class="fg" style="margin-bottom:8px">
       <label class="lbl">Fecha límite</label>
       <input type="date" value="${t.fecha||''}" onchange="editTarea('${id}','fecha',this.value)">
     </div>
     <div style="margin-bottom:12px">
-      <label class="lbl">Notas</label>
-      <textarea rows="3" onchange="editTarea('${id}','desc',this.value)">${esc(t.desc||'')}</textarea>
+      <label class="lbl">Descripción</label>
+      <textarea rows="2" onchange="editTarea('${id}','desc',this.value)">${esc(t.desc||'')}</textarea>
+    </div>
+    <div style="margin-bottom:12px">
+      <div style="font-size:11px;font-weight:700;color:var(--t3);text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px">💬 Comentarios</div>
+      ${(t.comments||[]).length?`<div style="max-height:160px;overflow-y:auto;margin-bottom:8px">
+        ${(t.comments||[]).map(c=>`<div style="padding:7px;background:#fff;border-radius:8px;border:1px solid var(--border);margin-bottom:5px">
+          <div style="display:flex;justify-content:space-between;margin-bottom:3px">
+            <span style="font-size:11px;font-weight:700;color:#7c3aed">👤 ${esc(c.nombre||'?')}</span>
+            <span style="font-size:10px;color:var(--t3)">${new Date(c.fecha||Date.now()).toLocaleDateString('es-AR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'})}</span>
+          </div>
+          <div style="font-size:13px;color:var(--t1)">${esc(c.texto)}</div>
+        </div>`).join('')}
+      </div>`:'<div style="font-size:12px;color:var(--t3);margin-bottom:8px;font-style:italic">Sin comentarios aún.</div>'}
+      <div style="display:flex;gap:6px">
+        <input id="comment-input-${id}" type="text" placeholder="Escribí un comentario..." style="flex:1;padding:8px 10px;border:1.5px solid var(--border2);border-radius:8px;font-size:13px">
+        <button onclick="addComment('${id}')" style="padding:8px 14px;background:#7c3aed;color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer">Enviar</button>
+      </div>
     </div>
     <div style="display:flex;gap:8px">
       <button class="btn-sec" style="flex:1" onclick="closeModal()">Cerrar</button>
@@ -1734,12 +1853,13 @@ function nuevaTarea(estado,space){
       </div>
     </div>
     ${userRole==='admin'&&teamMembers.length?`<div class="fg" style="margin-bottom:8px">
-      <label class="lbl">Asignar a</label>
-      <select id="nt-assignto">
-        <option value="">— Sin asignar —</option>
-        ${teamMembers.map(m=>`<option value="${m.member_id}">👤 ${esc(m.member_name)}</option>`).join('')}
-      </select>
-    </div>`:'<input type="hidden" id="nt-assignto" value="">'}
+      <label class="lbl">Asignar a (seleccioná las personas)</label>
+      <div style="display:flex;flex-wrap:wrap;gap:6px">
+        ${teamMembers.map(m=>`<label style="display:flex;align-items:center;gap:5px;padding:5px 10px;border-radius:20px;border:1.5px solid var(--border2);background:#fff;cursor:pointer;font-size:12.5px;font-weight:600;color:var(--t2)">
+          <input type="checkbox" class="nt-assignee-cb" value="${m.member_id}"> 👤 ${esc(m.member_name)}
+        </label>`).join('')}
+      </div>
+    </div>`:''}
     <div class="fg" style="margin-bottom:12px">
       <label class="lbl">Notas</label>
       <textarea id="nt-desc" rows="2" placeholder="Detalles opcionales..."></textarea>
@@ -1755,8 +1875,8 @@ function crearTarea(){
   const titulo=document.getElementById('nt-tit').value.trim();
   if(!titulo){toast('Ingresá un título','red');return;}
   const tipo=document.getElementById('nt-tipo')?.value||'normal';
-  const assignEl=document.getElementById('nt-assignto');
-  const assigned_to=assignEl?assignEl.value||null:null;
+  const assignees=Array.from(document.querySelectorAll('.nt-assignee-cb:checked')).map(cb=>cb.value);
+  const assigned_to=assignees.length===1?assignees[0]:null; // legacy compat
   const arr=getTareas();
   arr.push({id:uid(),titulo,
     space:document.getElementById('nt-sp').value,
@@ -1767,6 +1887,9 @@ function crearTarea(){
     creada:isoHoy(),_ts:Date.now(),
     user_id:sbUser?.id||null,
     assigned_to,
+    assignees,
+    assignee_statuses:assignees.map(uid=>({user_id:uid,nombre:getUserName(uid),estado:'Sin hacer'})),
+    comments:[],
     tipo,
     duracion_min:tipo==='recurring'?parseInt(document.getElementById('nt-duracion')?.value)||null:null,
     recur:tipo==='recurring'?(document.getElementById('nt-recurdays')?.value||'daily'):tipo==='timed'?(document.getElementById('nt-trecurdays')?.value||'daily'):null,
