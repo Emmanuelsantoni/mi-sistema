@@ -811,6 +811,7 @@ function renderWeekCard(t,fecha,overdue){
     ${overdue?`<div style="font-size:9px;color:#c07810;font-weight:700;margin-bottom:3px;display:flex;align-items:center;gap:3px">⚠️ Pendiente del ${fmtD(overdue)}</div>`:''}
     ${!overdue&&t.tipo==='recurring'?`<div style="font-size:9px;color:#7c3aed;font-weight:700;margin-bottom:2px">🔄 ${{daily:'Diario',weekdays:'Hábil',weekly:'Semanal',biweekly:'Quincenal',monthly:'Mensual'}[t.recur]||'Diario'}${t.duracion_min?' · '+t.duracion_min+'min':''}</div>`:''}
     <div class="k-card-ttl" style="${overdue?'color:#c07810':''}">${ overdue?'⚡ ':''}${esc(t.titulo)}</div>
+    ${t.tipo==='timed'?`<div style="font-size:9px;color:#0ea5e9;font-weight:700;margin-bottom:2px">⏱ ${{daily:'Diario',weekdays:'Hábil',weekly:'Semanal',biweekly:'Quincenal',monthly:'Mensual'}[t.recur]||'Diario'}</div>`:''}
     ${t.tipo==='timed'?`<div class="k-prog-bar"><div class="k-prog-fill" style="width:${pct}%"></div></div>`:''}
     <div class="k-card-meta" style="margin:3px 0">
       <span style="width:5px;height:5px;border-radius:50%;background:${sp.color};display:inline-block"></span>
@@ -1533,13 +1534,23 @@ function abrirTarea(id){
             onchange="editTarea('${id}','horas_dia',parseFloat(this.value)||null)">
         </div>
       </div>
-      <div class="fg fg2" style="margin-bottom:10px">
+      <div class="fg fg2" style="margin-bottom:8px">
         <div><label class="lbl">Fecha inicio</label>
           <input type="date" value="${t.fecha_inicio||''}" onchange="editTarea('${id}','fecha_inicio',this.value||null)">
         </div>
         <div><label class="lbl">Fecha fin <small style="font-weight:400">(vacío=sin límite)</small></label>
           <input type="date" value="${t.fecha_fin||''}" onchange="editTarea('${id}','fecha_fin',this.value||null)">
         </div>
+      </div>
+      <div class="fg" style="margin-bottom:10px">
+        <label class="lbl">Se repite</label>
+        <select onchange="editTarea('${id}','recur',this.value)">
+          <option value="daily"${(!t.recur||t.recur==='daily')?' selected':''}>Todos los días</option>
+          <option value="weekdays"${t.recur==='weekdays'?' selected':''}>Días hábiles (Lun–Vie)</option>
+          <option value="weekly"${t.recur==='weekly'?' selected':''}>1 vez por semana</option>
+          <option value="biweekly"${t.recur==='biweekly'?' selected':''}>1 vez cada 2 semanas</option>
+          <option value="monthly"${t.recur==='monthly'?' selected':''}>1 vez por mes</option>
+        </select>
       </div>
       <div style="display:flex;justify-content:space-between;margin-bottom:6px">
         <span style="font-size:13px;font-weight:700">Progreso</span>
@@ -1698,9 +1709,19 @@ function nuevaTarea(estado,space){
         <div><label class="lbl">Total horas</label><input type="number" id="nt-htotal" placeholder="Ej: 5" min="0.5" step="0.5"></div>
         <div><label class="lbl">Horas por día</label><input type="number" id="nt-hdia" placeholder="Ej: 1" min="0.5" step="0.5"></div>
       </div>
+      <div class="fg" style="margin-bottom:8px">
+        <label class="lbl">Se repite</label>
+          <select id="nt-trecurdays">
+            <option value="daily">Todos los días</option>
+            <option value="weekdays">Días hábiles (Lun–Vie)</option>
+            <option value="weekly">1 vez por semana</option>
+            <option value="biweekly">1 vez cada 2 semanas</option>
+            <option value="monthly">1 vez por mes</option>
+          </select>
+      </div>
       <div class="fg fg2" style="margin-bottom:8px">
         <div><label class="lbl">Fecha inicio</label><input type="date" id="nt-finicio2"></div>
-        <div><label class="lbl">Fecha fin</label><input type="date" id="nt-ffin2"></div>
+        <div><label class="lbl">Fecha fin <span style="font-weight:400;color:var(--t3)">(vacío=sin límite)</span></label><input type="date" id="nt-ffin2"></div>
       </div>
     </div>
     ${userRole==='admin'&&teamMembers.length?`<div class="fg" style="margin-bottom:8px">
@@ -1739,7 +1760,7 @@ function crearTarea(){
     assigned_to,
     tipo,
     duracion_min:tipo==='recurring'?parseInt(document.getElementById('nt-duracion')?.value)||null:null,
-    recur:tipo==='recurring'?(document.getElementById('nt-recurdays')?.value||'daily'):null,
+    recur:tipo==='recurring'?(document.getElementById('nt-recurdays')?.value||'daily'):tipo==='timed'?(document.getElementById('nt-trecurdays')?.value||'daily'):null,
     recur_completado:null,
     recur_log:[],
     horas_total:tipo==='timed'?parseFloat(document.getElementById('nt-htotal')?.value)||null:null,
