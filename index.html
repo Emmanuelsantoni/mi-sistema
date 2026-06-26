@@ -220,7 +220,7 @@ textarea{resize:vertical;min-height:60px}
   <div class="top-bar">
     <div class="top-row">
       <div><div class="app-name">📱 Mi Sistema</div><div class="top-date" id="top-date"></div></div>
-      <div style="display:flex;gap:6px"><button onclick="syncManual()" id="sync-btn" title="Sincronizar" style="background:rgba(255,255,255,.1);border:none;border-radius:8px;padding:6px 10px;color:rgba(255,255,255,.65);font-size:12px;font-weight:600;cursor:pointer">☁️</button><button onclick="goSpace('global')" style="background:rgba(255,255,255,.1);border:none;border-radius:8px;padding:6px 10px;color:rgba(255,255,255,.65);font-size:12px;font-weight:600;cursor:pointer">🌐 Global</button><button onclick="openCalendario()" title="Calendario" style="background:rgba(255,255,255,.1);border:none;border-radius:8px;padding:6px 10px;color:rgba(255,255,255,.65);font-size:12px;font-weight:600;cursor:pointer">📅</button><button onclick="doLogout()" title="Cerrar sesión" style="background:rgba(255,255,255,.1);border:none;border-radius:8px;padding:6px 10px;color:rgba(255,255,255,.65);font-size:12px;font-weight:600;cursor:pointer">⏏️</button></div>
+      <div style="display:flex;gap:6px"><button onclick="syncManual()" id="sync-btn" title="Sincronizar" style="background:rgba(255,255,255,.1);border:none;border-radius:8px;padding:6px 10px;color:rgba(255,255,255,.65);font-size:12px;font-weight:600;cursor:pointer">☁️</button><button onclick="goSpace('global')" style="background:rgba(255,255,255,.1);border:none;border-radius:8px;padding:6px 10px;color:rgba(255,255,255,.65);font-size:12px;font-weight:600;cursor:pointer">🌐 Global</button><button onclick="irATareas()" style="background:rgba(255,255,255,.1);border:none;border-radius:8px;padding:6px 10px;color:rgba(255,255,255,.65);font-size:12px;font-weight:600;cursor:pointer">📋 Tareas</button><button onclick="openCalendario()" title="Calendario" style="background:rgba(255,255,255,.1);border:none;border-radius:8px;padding:6px 10px;color:rgba(255,255,255,.65);font-size:12px;font-weight:600;cursor:pointer">📅</button><button onclick="doLogout()" title="Cerrar sesión" style="background:rgba(255,255,255,.1);border:none;border-radius:8px;padding:6px 10px;color:rgba(255,255,255,.65);font-size:12px;font-weight:600;cursor:pointer">⏏️</button></div>
     </div>
     <div class="space-tabs" id="space-tabs"></div>
   </div>
@@ -343,8 +343,8 @@ async function pullFromSupabase(){
     });
     mergeTable(
       lsLoad('ms2_tareas'),t||[],
-      r=>({id:r.id,titulo:r.titulo,space:r.espacio,estado:r.estado||'Sin hacer',prio:r.prio||'Media',fecha:r.fecha||'',desc:r.descripcion||'',creada:r.creada||'',user_id:r.user_id,assigned_to:r.assigned_to||null,tipo:r.tipo||'normal',duracion_min:r.duracion_min||null,recur:r.recur||null,recur_completado:r.recur_completado||null,horas_total:r.horas_total||null,horas_dia:r.horas_dia||null,horas_log:r.horas_log||[],fecha_inicio:r.fecha_inicio||null,fecha_fin:r.fecha_fin||null,recur_log:r.recur_log||[]}),
-      (x,u)=>({id:x.id,user_id:x.user_id||u,espacio:x.space,titulo:x.titulo,estado:x.estado||'Sin hacer',prio:x.prio||'Media',fecha:x.fecha||null,descripcion:x.desc||'',creada:x.creada,assigned_to:x.assigned_to||null,tipo:x.tipo||'normal',duracion_min:x.duracion_min||null,recur:x.recur||null,recur_completado:x.recur_completado||null,horas_total:x.horas_total||null,horas_dia:x.horas_dia||null,horas_log:x.horas_log||[],fecha_inicio:x.fecha_inicio||null,fecha_fin:x.fecha_fin||null,recur_log:x.recur_log||[],updated_at:new Date(x._ts||Date.now()).toISOString()}),
+      r=>({id:r.id,titulo:r.titulo,space:r.espacio,estado:r.estado||'Sin hacer',prio:r.prio||'Media',fecha:r.fecha||'',desc:r.descripcion||'',creada:r.creada||'',user_id:r.user_id,assigned_to:r.assigned_to||null,tipo:r.tipo||'normal',duracion_min:r.duracion_min||null,recur:r.recur||null,recur_completado:r.recur_completado||null,horas_total:r.horas_total||null,horas_dia:r.horas_dia||null,horas_log:r.horas_log||[],fecha_inicio:r.fecha_inicio||null,fecha_fin:r.fecha_fin||null,recur_log:r.recur_log||[],orden:r.orden??null}),
+      (x,u)=>({id:x.id,user_id:x.user_id||u,espacio:x.space,titulo:x.titulo,estado:x.estado||'Sin hacer',prio:x.prio||'Media',fecha:x.fecha||null,descripcion:x.desc||'',creada:x.creada,assigned_to:x.assigned_to||null,tipo:x.tipo||'normal',duracion_min:x.duracion_min||null,recur:x.recur||null,recur_completado:x.recur_completado||null,horas_total:x.horas_total||null,horas_dia:x.horas_dia||null,horas_log:x.horas_log||[],fecha_inicio:x.fecha_inicio||null,fecha_fin:x.fecha_fin||null,recur_log:x.recur_log||[],orden:x.orden??null,updated_at:new Date(x._ts||Date.now()).toISOString()}),
       'ms2_tareas','tareas'
     );
     SIDS.forEach(sp=>{
@@ -664,6 +664,35 @@ function getWeekDays(offset){
   return Array.from({length:7},(_,i)=>{const d=new Date(mon);d.setDate(mon.getDate()+i);return d.toISOString().split('T')[0];});
 }
 
+// ── getLastMissedDate: returns the most recent past date a task was scheduled but not done
+function getLastMissedDate(t){
+  const today=isoHoy();
+  const d=new Date(today+'T12:00:00');
+  for(let i=0;i<93;i++){
+    d.setDate(d.getDate()-1);
+    const iso=d.toISOString().split('T')[0];
+    if(recurMatchesDate(t,iso)){
+      return isDoneOnDate(t,iso)?null:iso;
+    }
+  }
+  return null;
+}
+
+// ── recurMatchesDate: checks if recurring/timed task appears on a given date
+function recurMatchesDate(t,d){
+  const start=t.fecha_inicio||t.fecha;
+  const end=t.fecha_fin||null;
+  if(!start||d<start)return false;
+  if(end&&d>end)return false;
+  const dow=iso=>(new Date(iso+'T12:00:00').getDay()+6)%7;
+  const diffDays=Math.round((new Date(d+'T12:00:00')-new Date(start+'T12:00:00'))/86400000);
+  if(t.recur==='weekdays')return dow(d)<5;
+  if(t.recur==='weekly')return dow(d)===dow(start);
+  if(t.recur==='biweekly')return diffDays>=0&&diffDays%14===0;
+  if(t.recur==='monthly')return d.split('-')[2]===start.split('-')[2];
+  return true; // 'daily' or null
+}
+
 function renderKanbanSemana(tareas,filter){
   const PRIO_O={Alta:0,Media:1,Baja:2};
   const DIAS=['Lun','Mar','Mié','Jue','Vie','Sáb','Dom'];
@@ -686,17 +715,35 @@ function renderKanbanSemana(tareas,filter){
       else if(!t.fecha){noDat.push({task:t,fecha:null});}
     }else{
       // recurring/timed: show on each day in range (null fecha_fin = sin límite)
-      const start=t.fecha_inicio||t.fecha;
-      const end=t.fecha_fin||null; // null = no end date
       days.forEach(d=>{
-        if(!start||d<start)return;
-        if(end&&d>end)return;
-        if(t.recur==='weekdays'&&!esHabil(d))return; // skip weekends
-        byDay[d].push({task:t,fecha:d});
+        if(recurMatchesDate(t,d))byDay[d].push({task:t,fecha:d});
       });
     }
   });
-  Object.keys(byDay).forEach(d=>{byDay[d].sort((a,b)=>(PRIO_O[a.task.prio]||1)-(PRIO_O[b.task.prio]||1));});
+  Object.keys(byDay).forEach(d=>{
+    byDay[d].sort((a,b)=>{
+      const oa=a.task.orden??9999999999999,ob=b.task.orden??9999999999999;
+      if(oa!==ob)return oa-ob;
+      return (PRIO_O[a.task.prio]||1)-(PRIO_O[b.task.prio]||1);
+    });
+  });
+
+  // ── overdue: add missed recurring/timed tasks to today's column
+  if(byDay[today]!==undefined){
+    const alreadyToday=new Set(byDay[today].filter(i=>!i.overdue).map(i=>i.task.id));
+    cards.filter(t=>t.tipo==='recurring'||t.tipo==='timed').forEach(t=>{
+      if(alreadyToday.has(t.id))return;
+      const missed=getLastMissedDate(t);
+      if(missed)byDay[today].push({task:t,fecha:today,overdue:missed});
+    });
+    // re-sort today after adding overdue cards (overdue go to bottom)
+    byDay[today].sort((a,b)=>{
+      if(!!a.overdue!==!!b.overdue)return a.overdue?1:-1;
+      const oa=a.task.orden??9999999999999,ob=b.task.orden??9999999999999;
+      if(oa!==ob)return oa-ob;
+      return (PRIO_O[a.task.prio]||1)-(PRIO_O[b.task.prio]||1);
+    });
+  }
 
   const navStyle='padding:6px 12px;border-radius:8px;border:1.5px solid var(--border2);background:#fff;font-size:13px;font-weight:600;cursor:pointer;color:var(--t1)';
   const wkLabel=days[0]+' → '+days[6];
@@ -717,7 +764,7 @@ function renderKanbanSemana(tareas,filter){
           <span class="k-col-ttl" style="color:${isToday?'#7c3aed':'var(--t3)'}">${DIAS[i]} ${dn}/${mc}</span>
           <span class="k-count">${dc.length}</span>
         </div>
-        ${dc.map(item=>renderWeekCard(item.task,item.fecha)).join('')}
+        ${dc.map(item=>renderWeekCard(item.task,item.fecha,item.overdue||null)).join('')}
         <button class="k-btn-add" onclick="calNuevaTarea('${iso}')">+ Agregar</button>
       </div>`;
     }).join('')}
@@ -726,7 +773,7 @@ function renderKanbanSemana(tareas,filter){
   <div style="display:flex;gap:6px;flex-wrap:wrap">${noDat.map(item=>`<div class="k-card" style="border-left-color:${PRIO_C[item.task.prio]||'#888'};width:170px;flex-shrink:0" onclick="abrirTarea('${item.task.id}')"><div class="k-card-ttl">${esc(item.task.titulo)}</div><div style="font-size:10px;color:var(--t3);margin-top:2px">${SMAP[item.task.space]?.name||''} · ${item.task.prio}</div></div>`).join('')}</div></div>`:''}`;
 }
 
-function renderWeekCard(t,fecha){
+function renderWeekCard(t,fecha,overdue){
   const pc=PRIO_C[t.prio]||'#888';
   const sp=SMAP[t.space]||SPACES[0];
   const done=isDoneOnDate(t,fecha);
@@ -734,7 +781,7 @@ function renderWeekCard(t,fecha){
   const horasHoy=t.tipo==='timed'?(t.horas_log||[]).find(l=>l.fecha===fecha)?.horas||0:0;
   const pct=t.tipo==='timed'&&t.horas_total?Math.min(100,Math.round(horasAcum/t.horas_total*100)):0;
   const assignee=teamMembers.find(m=>m.member_id===t.assigned_to);
-  const borderC=done?'#1a9e72':pc;
+  const borderC=overdue?'#c07810':(done?'#1a9e72':pc);
   let actionBtn='';
   if(t.tipo==='recurring'){
     actionBtn=done
@@ -761,8 +808,9 @@ function renderWeekCard(t,fecha){
       </div>`;
   }
   return`<div class="k-card${done?' k-fin':''}" style="border-left-color:${borderC}" onclick="abrirTarea('${t.id}')">
-    ${t.tipo==='recurring'?`<div style="font-size:9px;color:#7c3aed;font-weight:700;margin-bottom:2px">🔄 ${t.duracion_min||0}min</div>`:''}
-    <div class="k-card-ttl">${esc(t.titulo)}</div>
+    ${overdue?`<div style="font-size:9px;color:#c07810;font-weight:700;margin-bottom:3px;display:flex;align-items:center;gap:3px">⚠️ Pendiente del ${fmtD(overdue)}</div>`:''}
+    ${!overdue&&t.tipo==='recurring'?`<div style="font-size:9px;color:#7c3aed;font-weight:700;margin-bottom:2px">🔄 ${{daily:'Diario',weekdays:'Hábil',weekly:'Semanal',biweekly:'Quincenal',monthly:'Mensual'}[t.recur]||'Diario'}${t.duracion_min?' · '+t.duracion_min+'min':''}</div>`:''}
+    <div class="k-card-ttl" style="${overdue?'color:#c07810':''}">${ overdue?'⚡ ':''}${esc(t.titulo)}</div>
     ${t.tipo==='timed'?`<div class="k-prog-bar"><div class="k-prog-fill" style="width:${pct}%"></div></div>`:''}
     <div class="k-card-meta" style="margin:3px 0">
       <span style="width:5px;height:5px;border-radius:50%;background:${sp.color};display:inline-block"></span>
@@ -770,9 +818,41 @@ function renderWeekCard(t,fecha){
       ${assignee?`<span class="badge" style="font-size:9px;background:rgba(14,165,233,.1);color:#0ea5e9">${esc(assignee.member_name)}</span>`:''}
     </div>
     ${actionBtn}
+    <div style="display:flex;justify-content:flex-end;gap:3px;margin-top:4px" onclick="event.stopPropagation()">
+      <button onclick="reordenarDia('${t.id}','${fecha}','up')" title="Subir" style="padding:1px 7px;border:1px solid var(--border2);border-radius:4px;background:#fff;cursor:pointer;font-size:12px;color:var(--t2);line-height:1.6">↑</button>
+      <button onclick="reordenarDia('${t.id}','${fecha}','down')" title="Bajar" style="padding:1px 7px;border:1px solid var(--border2);border-radius:4px;background:#fff;cursor:pointer;font-size:12px;color:var(--t2);line-height:1.6">↓</button>
+    </div>
   </div>`;
 }
 
+
+// ── reordenarDia ─────────────────────────────────────────────────────────────
+function reordenarDia(id,fecha,dir){
+  const all=getTareas();
+  // collect tasks visible on this date
+  const snap=[];
+  all.forEach(t=>{
+    if(!t.tipo||t.tipo==='normal'){
+      if(t.fecha===fecha)snap.push(t);
+    } else {
+      if(recurMatchesDate(t,fecha))snap.push(t);
+    }
+  });
+  if(snap.length<2)return;
+  // initialize orden if missing
+  snap.forEach((t,i)=>{if(t.orden==null)t.orden=i*10;});
+  snap.sort((a,b)=>a.orden-b.orden);
+  const pos=snap.findIndex(t=>t.id===id);
+  const npos=pos+(dir==='up'?-1:1);
+  if(npos<0||npos>=snap.length)return;
+  // swap orden
+  const tmp=snap[pos].orden;
+  snap[pos].orden=snap[npos].orden;
+  snap[npos].orden=tmp;
+  snap[pos]._ts=snap[npos]._ts=Date.now();
+  setTareas(all);
+  if(curMod==='tareas')renderContent();
+}
 
 // ── isDoneOnDate helper ────────────────────────────────────────────────────────
 function isDoneOnDate(t,fecha){
@@ -846,22 +926,22 @@ function renderKanbanMes(tareas,filter){
   if(filter&&filter!=='all'&&filter!=='member')cards=cards.filter(t=>t.space===filter);
   if(filter==='member')cards=cards.filter(t=>teamMembers.some(m=>m.member_id===t.assigned_to||m.member_id===t.user_id));
 
-  const esHabilM=iso=>{const dow=(new Date(iso+'T12:00:00').getDay()+6)%7;return dow<5;};
   cards.forEach(t=>{
     if(!t.tipo||t.tipo==='normal'){
       if(t.fecha&&byDay[t.fecha]!==undefined)byDay[t.fecha].push({task:t,fecha:t.fecha});
     }else{
-      const start=t.fecha_inicio||t.fecha;
-      const end=t.fecha_fin||null; // null = sin límite
       allDays.forEach(d=>{
-        if(!start||d<start)return;
-        if(end&&d>end)return;
-        if(t.recur==='weekdays'&&!esHabilM(d))return;
-        byDay[d].push({task:t,fecha:d});
+        if(recurMatchesDate(t,d))byDay[d].push({task:t,fecha:d});
       });
     }
   });
-  allDays.forEach(d=>{byDay[d].sort((a,b)=>(PRIO_O[a.task.prio]||1)-(PRIO_O[b.task.prio]||1));});
+  allDays.forEach(d=>{
+    byDay[d].sort((a,b)=>{
+      const oa=a.task.orden??9999999999999,ob=b.task.orden??9999999999999;
+      if(oa!==ob)return oa-ob;
+      return (PRIO_O[a.task.prio]||1)-(PRIO_O[b.task.prio]||1);
+    });
+  });
 
   const navStyle='padding:6px 12px;border-radius:8px;border:1.5px solid var(--border2);background:#fff;font-size:13px;font-weight:600;cursor:pointer;color:var(--t1)';
   let cells='';
@@ -947,6 +1027,19 @@ function buildModBar(){
   const mods=userRole==='member'?['tareas']:SMAP[curSpace].mods;
   bar.innerHTML=mods.map(m=>`<button class="mod-tab${m===curMod?' on':''}" id="modtab-${m}"
     onclick="goMod('${m}')">${MOD_LABELS[m]}</button>`).join('');
+}
+
+function irATareas(){
+  kanbanFilter='all';
+  isGlobal=false;
+  // go to first space that has tareas
+  if(!curSpace||!SMAP[curSpace])curSpace=SPACES[0].id;
+  curMod='tareas';
+  setCSSVars(curSpace);
+  buildSpaceTabs();
+  buildModBar();
+  renderContent();
+  renderAlerts();
 }
 
 function goMod(id){
@@ -1390,7 +1483,7 @@ function renderKanban(tareas,filter){
             else{vt=fmtD(t.fecha);}
           }
           return`<div class="k-card${isFin?' k-fin':''}" style="border-left-color:${isFin?'#1a9e72':pc}" onclick="abrirTarea('${t.id}')">
-            ${t.tipo==='recurring'?`<span class="tipo-badge" style="background:rgba(124,58,237,.1);color:#7c3aed">🔄 Diaria ${t.duracion_min||0}min</span>`:''}
+            ${t.tipo==='recurring'?`<span class="tipo-badge" style="background:rgba(124,58,237,.1);color:#7c3aed">🔄 ${{daily:'Diaria',weekdays:'Hábil',weekly:'Semanal',biweekly:'Quincenal',monthly:'Mensual'}[t.recur]||'Diaria'}${t.duracion_min?' · '+t.duracion_min+'min':''}</span>`:''}
             ${t.tipo==='timed'?`<span class="tipo-badge" style="background:rgba(14,165,233,.1);color:#0ea5e9">⏱ Con horas</span>`:''}
             <div class="k-card-ttl">${esc(t.titulo)}</div>
             ${t.tipo==='timed'?`<div class="k-prog-bar"><div class="k-prog-fill" style="width:${progPct}%"></div></div><div style="font-size:10px;color:var(--t3);margin-bottom:3px">${horasAcum}/${t.horas_total||0}h (${progPct}%)</div>`:''}
@@ -1429,9 +1522,28 @@ function abrirTarea(id){
         onclick="setEstado('${id}','${e}',${i})">${e}</button>`).join('')}
     </div>
     ${t.tipo==='timed'?`<div style="background:#f8f7f4;border-radius:10px;padding:12px;margin-bottom:12px">
+      <div style="font-size:11px;font-weight:700;color:var(--t3);text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px">⏱ Con horas</div>
+      <div class="fg fg2" style="margin-bottom:8px">
+        <div><label class="lbl">Total horas</label>
+          <input type="number" value="${t.horas_total||''}" step="0.5" min="0.5"
+            onchange="editTarea('${id}','horas_total',parseFloat(this.value)||null)">
+        </div>
+        <div><label class="lbl">Horas por día</label>
+          <input type="number" value="${t.horas_dia||''}" step="0.5" min="0.5"
+            onchange="editTarea('${id}','horas_dia',parseFloat(this.value)||null)">
+        </div>
+      </div>
+      <div class="fg fg2" style="margin-bottom:10px">
+        <div><label class="lbl">Fecha inicio</label>
+          <input type="date" value="${t.fecha_inicio||''}" onchange="editTarea('${id}','fecha_inicio',this.value||null)">
+        </div>
+        <div><label class="lbl">Fecha fin <small style="font-weight:400">(vacío=sin límite)</small></label>
+          <input type="date" value="${t.fecha_fin||''}" onchange="editTarea('${id}','fecha_fin',this.value||null)">
+        </div>
+      </div>
       <div style="display:flex;justify-content:space-between;margin-bottom:6px">
-        <span style="font-size:13px;font-weight:700">Progreso horas</span>
-        <span style="font-size:13px;color:#7c3aed;font-weight:700">${horasAcum}/${t.horas_total||0}h</span>
+        <span style="font-size:13px;font-weight:700">Progreso</span>
+        <span style="font-size:13px;color:#7c3aed;font-weight:700">${horasAcum}/${t.horas_total||0}h (${progPct}%)</span>
       </div>
       <div style="height:8px;background:#e4e1d8;border-radius:4px;overflow:hidden;margin-bottom:10px">
         <div style="height:100%;background:#7c3aed;width:${progPct}%;transition:width .3s"></div>
@@ -1445,13 +1557,35 @@ function abrirTarea(id){
         ${t.horas_log.slice(-4).reverse().map(l=>`<div style="display:flex;justify-content:space-between;padding:3px 0;border-bottom:1px solid var(--border)"><span>${fmtD(l.fecha)}</span><span style="font-weight:700">${l.horas}h</span></div>`).join('')}
       </div>`:''}
     </div>`:''}
-    ${t.tipo==='recurring'?`<div style="background:#f8f7f4;border-radius:10px;padding:10px;margin-bottom:12px;font-size:13px">
-      🔄 Tarea diaria de <strong>${t.duracion_min||0} minutos</strong>
-      ${t.fecha_inicio?` · Del ${fmtD(t.fecha_inicio)} al ${fmtD(t.fecha_fin||t.fecha_inicio)}`:''}
-      <div style="margin-top:8px">${isDoneOnDate(t,isoHoy())?
-        `<div class="k-done-overlay">✓ Hecha hoy · <button onclick="marcarDiaRecurrente('${id}',isoHoy(),false);abrirTarea('${id}')" style="border:none;background:none;color:#1a9e72;cursor:pointer;font-weight:700;font-size:12px">Desmarcar</button></div>`:
-        `<button onclick="marcarDiaRecurrente('${id}',isoHoy());abrirTarea('${id}')" style="width:100%;padding:7px;border:1.5px solid #1a9e72;border-radius:8px;background:none;color:#1a9e72;font-size:13px;font-weight:700;cursor:pointer">✓ Marcar hecho hoy</button>`}
+    ${t.tipo==='recurring'?`<div style="background:#f8f7f4;border-radius:10px;padding:12px;margin-bottom:12px">
+      <div style="font-size:11px;font-weight:700;color:var(--t3);text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px">🔄 Tarea diaria</div>
+      <div class="fg fg2" style="margin-bottom:8px">
+        <div><label class="lbl">Duración (min)</label>
+          <input type="number" value="${t.duracion_min||''}" placeholder="30" min="1"
+            onchange="editTarea('${id}','duracion_min',parseInt(this.value)||null)">
+        </div>
+        <div><label class="lbl">Días</label>
+          <select onchange="editTarea('${id}','recur',this.value)">
+            <option value="daily"${(!t.recur||t.recur==='daily')?' selected':''}>Todos los días</option>
+            <option value="weekdays"${t.recur==='weekdays'?' selected':''}>Días hábiles (Lun–Vie)</option>
+            <option value="weekly"${t.recur==='weekly'?' selected':''}>1 vez por semana</option>
+            <option value="biweekly"${t.recur==='biweekly'?' selected':''}>1 vez cada 2 semanas</option>
+            <option value="monthly"${t.recur==='monthly'?' selected':''}>1 vez por mes</option>
+          </select>
+        </div>
       </div>
+      <div class="fg fg2" style="margin-bottom:10px">
+        <div><label class="lbl">Fecha inicio</label>
+          <input type="date" value="${t.fecha_inicio||''}" onchange="editTarea('${id}','fecha_inicio',this.value||null)">
+        </div>
+        <div><label class="lbl">Fecha fin <small style="font-weight:400">(vacío=sin límite)</small></label>
+          <input type="date" value="${t.fecha_fin||''}" onchange="editTarea('${id}','fecha_fin',this.value||null)">
+        </div>
+      </div>
+      ${isDoneOnDate(t,isoHoy())?
+        `<div class="k-done-overlay" style="justify-content:space-between">✓ Hecha hoy
+           <button onclick="marcarDiaRecurrente('${id}',isoHoy(),false);abrirTarea('${id}')" style="border:none;background:none;color:#1a9e72;cursor:pointer;font-weight:700;font-size:12px">↩ Desmarcar</button></div>`:
+        `<button onclick="marcarDiaRecurrente('${id}',isoHoy());abrirTarea('${id}')" style="width:100%;padding:8px;border:1.5px solid #1a9e72;border-radius:8px;background:none;color:#1a9e72;font-size:13px;font-weight:700;cursor:pointer">✓ Marcar hecho hoy</button>`}
     </div>`:''}
     <div class="fg fg2">
       <div><label class="lbl">Espacio</label>
@@ -1548,6 +1682,9 @@ function nuevaTarea(estado,space){
           <select id="nt-recurdays">
             <option value="daily">Todos los días</option>
             <option value="weekdays">Días hábiles (Lun–Vie)</option>
+            <option value="weekly">1 vez por semana</option>
+            <option value="biweekly">1 vez cada 2 semanas</option>
+            <option value="monthly">1 vez por mes</option>
           </select>
         </div>
       </div>
