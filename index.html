@@ -570,7 +570,7 @@ const esc=s=>(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&g
 // STATE
 // ══════════════════════════════════════════════
 let curSpace='pers', curMod='asistente', isGlobal=false;
-let kanbanFilter='all';
+let kanbanFilter='own';
 
 // ══════════════════════════════════════════════
 // INIT
@@ -704,7 +704,8 @@ function renderKanbanSemana(tareas,filter){
 
   let cards=[...tareas];
   if(!showFinaliz)cards=cards.filter(t=>t.estado!=='Finalizado'&&!(t.tipo==='recurring'&&isDoneOnDate(t,today)));
-  if(filter&&filter!=='all'&&filter!=='member')cards=cards.filter(t=>t.space===filter);
+  if(filter!=='all'&&filter!=='member')cards=cards.filter(t=>!teamMembers.some(m=>m.member_id===t.user_id));
+  if(filter&&filter!=='all'&&filter!=='member'&&filter!=='own')cards=cards.filter(t=>t.space===filter);
   if(filter==='member')cards=cards.filter(t=>teamMembers.some(m=>m.member_id===t.assigned_to||m.member_id===t.user_id));
 
   const esHabil=iso=>{const dow=(new Date(iso+'T12:00:00').getDay()+6)%7;return dow<5;};
@@ -924,7 +925,8 @@ function renderKanbanMes(tareas,filter){
   allDays.forEach(d=>{byDay[d]=[];});
   let cards=[...tareas];
   if(!showFinaliz)cards=cards.filter(t=>t.estado!=='Finalizado');
-  if(filter&&filter!=='all'&&filter!=='member')cards=cards.filter(t=>t.space===filter);
+  if(filter!=='all'&&filter!=='member')cards=cards.filter(t=>!teamMembers.some(m=>m.member_id===t.user_id));
+  if(filter&&filter!=='all'&&filter!=='member'&&filter!=='own')cards=cards.filter(t=>t.space===filter);
   if(filter==='member')cards=cards.filter(t=>teamMembers.some(m=>m.member_id===t.assigned_to||m.member_id===t.user_id));
 
   cards.forEach(t=>{
@@ -1031,7 +1033,7 @@ function buildModBar(){
 }
 
 function irATareas(){
-  kanbanFilter='all';
+  kanbanFilter='own';
   isGlobal=false;
   // go to first space that has tareas
   if(!curSpace||!SMAP[curSpace])curSpace=SPACES[0].id;
@@ -1442,10 +1444,16 @@ function buildTareas(){
     <div style="display:flex;gap:8px;align-items:center">${viewToggle}${finToggle}</div>
     <button class="btn-sec" style="font-size:13px;padding:7px 12px" onclick="nuevaTarea('Sin hacer','${curSpace}')">➕ Nueva tarea</button>
   </div>
-  ${userRole==='admin'?`<div style="display:flex;gap:5px;margin-bottom:10px;flex-wrap:wrap">
-    <button onclick="setKanbanFilter('all',this)" style="padding:5px 12px;border-radius:20px;border:1.5px solid #1a1916;background:#1a1916;color:#fff;font-size:12.5px;font-weight:600;cursor:pointer">Todos</button>
-    ${SPACES.map(s=>`<button onclick="setKanbanFilter('${s.id}',this)" style="padding:5px 12px;border-radius:20px;border:1.5px solid ${s.color};background:${s.bg};color:${s.color};font-size:12.5px;font-weight:600;cursor:pointer">${s.emoji} ${s.name}</button>`).join('')}
-    ${memberFilter}
+  ${userRole==='admin'?`<div style="margin-bottom:10px">
+    <div style="display:flex;gap:5px;flex-wrap:wrap;margin-bottom:6px">
+      <button onclick="setKanbanFilter('own',this)" style="padding:5px 12px;border-radius:20px;border:1.5px solid #1a1916;font-size:12.5px;font-weight:600;cursor:pointer;background:${kanbanFilter==='own'||(!['all','member'].includes(kanbanFilter)&&kanbanFilter!=='own')?'#1a1916':'#fff'};color:${kanbanFilter==='own'||(!['all','member'].includes(kanbanFilter)&&kanbanFilter!=='own')?'#fff':'#1a1916'}">Mis tareas</button>
+      ${SPACES.map(s=>`<button onclick="setKanbanFilter('${s.id}',this)" style="padding:5px 12px;border-radius:20px;border:1.5px solid ${s.color};font-size:12.5px;font-weight:600;cursor:pointer;background:${kanbanFilter===s.id?s.color:s.bg};color:${kanbanFilter===s.id?'#fff':s.color}">${s.emoji} ${s.name}</button>`).join('')}
+    </div>
+    ${teamMembers.length?`<div style="display:flex;gap:5px;align-items:center;padding:6px 10px;background:rgba(14,165,233,.06);border-radius:10px;border:1px solid rgba(14,165,233,.2)">
+      <span style="font-size:11px;color:#0ea5e9;font-weight:700;text-transform:uppercase;letter-spacing:.05em">Equipo</span>
+      <button onclick="setKanbanFilter('member',this)" style="padding:4px 12px;border-radius:20px;border:1.5px solid #0ea5e9;font-size:12.5px;font-weight:600;cursor:pointer;background:${kanbanFilter==='member'?'#0ea5e9':'rgba(14,165,233,.1)'};color:${kanbanFilter==='member'?'#fff':'#0ea5e9'}">👤 ${teamMembers[0]?.member_name||'Martin'}</button>
+      <button onclick="setKanbanFilter('all',this)" style="padding:4px 12px;border-radius:20px;border:1.5px solid #888;font-size:12px;font-weight:600;cursor:pointer;background:${kanbanFilter==='all'?'#888':'rgba(0,0,0,.06)'};color:${kanbanFilter==='all'?'#fff':'#888'}">Todos</button>
+    </div>`:''}
   </div>`:''}
   <div id="kanban-wrap">${kanbanMode==='semana'?renderKanbanSemana(tareas,kanbanFilter):kanbanMode==='mes'?renderKanbanMes(tareas,kanbanFilter):renderKanban(tareas,kanbanFilter)}</div>`;
 }
@@ -1460,7 +1468,8 @@ function renderKanban(tareas,filter){
   return`<div class="kanban-scroll"><div class="kanban">
     ${ESTADOS.filter(e=>showFinaliz||e!=='Finalizado').map((est,ci)=>{
       let cards=tareas.filter(t=>t.estado===est);
-      if(filter&&filter!=='all'&&filter!=='member')cards=cards.filter(t=>t.space===filter);
+      if(filter!=='all'&&filter!=='member')cards=cards.filter(t=>!teamMembers.some(m=>m.member_id===t.user_id));
+      if(filter&&filter!=='all'&&filter!=='member'&&filter!=='own')cards=cards.filter(t=>t.space===filter);
       if(filter==='member')cards=cards.filter(t=>teamMembers.some(m=>m.member_id===t.assigned_to||m.member_id===t.user_id));
       cards.sort((a,b)=>(PRIO_O[a.prio]||1)-(PRIO_O[b.prio]||1));
       const isFin=est==='Finalizado';
