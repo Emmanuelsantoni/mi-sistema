@@ -220,7 +220,7 @@ textarea{resize:vertical;min-height:60px}
   <div class="top-bar">
     <div class="top-row">
       <div><div class="app-name">📱 Mi Sistema</div><div class="top-date" id="top-date"></div></div>
-      <div style="display:flex;gap:6px"><button onclick="syncManual()" id="sync-btn" title="Sincronizar" style="background:rgba(255,255,255,.1);border:none;border-radius:8px;padding:6px 10px;color:rgba(255,255,255,.65);font-size:12px;font-weight:600;cursor:pointer">☁️</button><button onclick="goSpace('global')" style="background:rgba(255,255,255,.1);border:none;border-radius:8px;padding:6px 10px;color:rgba(255,255,255,.65);font-size:12px;font-weight:600;cursor:pointer">🌐 Global</button><button onclick="irATareas()" style="background:rgba(255,255,255,.1);border:none;border-radius:8px;padding:6px 10px;color:rgba(255,255,255,.65);font-size:12px;font-weight:600;cursor:pointer">📋 Tareas</button><button onclick="openCalendario()" title="Calendario" style="background:rgba(255,255,255,.1);border:none;border-radius:8px;padding:6px 10px;color:rgba(255,255,255,.65);font-size:12px;font-weight:600;cursor:pointer">📅</button><button onclick="doLogout()" title="Cerrar sesión" style="background:rgba(255,255,255,.1);border:none;border-radius:8px;padding:6px 10px;color:rgba(255,255,255,.65);font-size:12px;font-weight:600;cursor:pointer">⏏️</button></div>
+      <div style="display:flex;gap:6px"><span id="timer-display" style="font-size:11px;font-weight:700;color:rgba(255,255,255,.85);padding:5px 8px;background:rgba(0,0,0,.2);border-radius:8px;display:inline-block;min-width:0;transition:all .3s"></span><button onclick="syncManual()" id="sync-btn" title="Sincronizar" style="background:rgba(255,255,255,.1);border:none;border-radius:8px;padding:6px 10px;color:rgba(255,255,255,.65);font-size:12px;font-weight:600;cursor:pointer">☁️</button><button onclick="goSpace('global')" style="background:rgba(255,255,255,.1);border:none;border-radius:8px;padding:6px 10px;color:rgba(255,255,255,.65);font-size:12px;font-weight:600;cursor:pointer">🌐 Global</button><button onclick="irATareas()" style="background:rgba(255,255,255,.1);border:none;border-radius:8px;padding:6px 10px;color:rgba(255,255,255,.65);font-size:12px;font-weight:600;cursor:pointer">📋 Tareas</button><button onclick="openCalendario()" title="Calendario" style="background:rgba(255,255,255,.1);border:none;border-radius:8px;padding:6px 10px;color:rgba(255,255,255,.65);font-size:12px;font-weight:600;cursor:pointer">📅</button><button onclick="doLogout()" title="Cerrar sesión" style="background:rgba(255,255,255,.1);border:none;border-radius:8px;padding:6px 10px;color:rgba(255,255,255,.65);font-size:12px;font-weight:600;cursor:pointer">⏏️</button></div>
     </div>
     <div class="space-tabs" id="space-tabs"></div>
   </div>
@@ -432,7 +432,7 @@ function getCalEventos(){
   const ev={};
   function add(fecha,label,color,sp,id,type){if(!fecha)return;if(!ev[fecha])ev[fecha]=[];ev[fecha].push({label,color,sp,id:id||'',type:type||''});}
   SPACES.forEach(sp=>{getData(sp.id,'vencs').forEach(v=>{if(!v.fecha||v.pagado)return;const d=diasHasta(v.fecha);add(v.fecha,'📋 '+v.nombre,d<0?'#e24b4a':d<=3?'#f59e0b':'#7c3aed',sp.name,v.id,'venc');});});
-  getTareas().filter(t=>t.fecha&&t.estado!=='Finalizado').forEach(t=>{const d=diasHasta(t.fecha);const sp=SMAP[t.space]||SPACES[0];add(t.fecha,'✅ '+t.titulo,d<0?'#e24b4a':d<=1?'#f59e0b':'#2878d4',sp.name,t.id,'tarea');});
+  getTareas().filter(t=>t.fecha&&t.estado!=='Finalizado'&&(sbUser&&(t.user_id===sbUser.id||(t.assignees||[]).includes(sbUser.id)||(t.assigned_to===sbUser.id&&!(t.assignees||[]).length)))).forEach(t=>{const d=diasHasta(t.fecha);const sp=SMAP[t.space]||SPACES[0];add(t.fecha,'✅ '+t.titulo,d<0?'#e24b4a':d<=1?'#f59e0b':'#2878d4',sp.name,t.id,'tarea');});
   return ev;
 }
 function renderCal(){
@@ -493,13 +493,13 @@ function renderCalDetalle(iso,ev){
 // ══════════════════════════════════════════════
 const SPACES = [
   {id:'pers', name:'Personal', emoji:'🏠', color:'#7c3aed', bg:'#eeebfd', dk:'#5428b8',
-   mods:['gastos','vencimientos','tareas','resumen']},
+   mods:['gastos','vencimientos','tareas','resumen','notas']},
   {id:'tork', name:'Tork',     emoji:'🔧', color:'#1a6eb5', bg:'#e6f0fb', dk:'#0f4a80',
-   mods:['tareas','vencimientos','notas']},
+   mods:['tareas','vencimientos']},
   {id:'sant', name:'Santoni',  emoji:'🚗', color:'#d63a1a', bg:'#fbeae6', dk:'#9a2810',
-   mods:['tareas','vencimientos','notas']},
+   mods:['tareas','vencimientos']},
   {id:'covi', name:'Covin',    emoji:'🏭', color:'#1a9e52', bg:'#e0f5e9', dk:'#0d6e38',
-   mods:['tareas','vencimientos','notas']},
+   mods:['tareas','vencimientos']},
 ];
 const SMAP = Object.fromEntries(SPACES.map(s=>[s.id,s]));
 
@@ -571,6 +571,7 @@ const esc=s=>(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&g
 // ══════════════════════════════════════════════
 let curSpace='pers', curMod='asistente', isGlobal=false;
 let kanbanFilter='own';
+let _timerState=null; // {taskId,taskTitle,startMs,totalMs,intervalId}
 
 // ══════════════════════════════════════════════
 // INIT
@@ -879,7 +880,10 @@ function renderWeekCard(t,fecha,overdue){
   }
   return`<div class="k-card${done?' k-fin':''}" style="border-left-color:${borderC}" onclick="abrirTarea('${t.id}')">
     ${overdue?`<div style="font-size:9px;color:#c07810;font-weight:700;margin-bottom:3px;display:flex;align-items:center;gap:3px">⚠️ Pendiente del ${fmtD(overdue)}</div>`:''}
-    ${!overdue&&t.tipo==='recurring'?`<div style="font-size:9px;color:#7c3aed;font-weight:700;margin-bottom:2px">🔄 ${{daily:'Diario',weekdays:'Hábil',weekly:'Semanal',biweekly:'Quincenal',monthly:'Mensual'}[t.recur]||'Diario'}${t.duracion_min?' · '+t.duracion_min+'min':''}</div>`:''}
+    ${!overdue&&t.tipo==='recurring'?`<div style="font-size:9px;color:#7c3aed;font-weight:700;margin-bottom:2px;display:flex;align-items:center;justify-content:space-between">
+      <span>🔄 ${{daily:'Diario',weekdays:'Hábil',weekly:'Semanal',biweekly:'Quincenal',monthly:'Mensual'}[t.recur]||'Diario'}${t.duracion_min?' · '+t.duracion_min+'min':''}</span>
+      ${t.duracion_min?`<button onclick="event.stopPropagation();startTaskTimer('${t.id}',${t.duracion_min},'${t.titulo.replace(/'/g,"'")}')" style="padding:1px 6px;border-radius:8px;border:1px solid #7c3aed;background:rgba(124,58,237,.1);color:#7c3aed;font-size:9px;font-weight:700;cursor:pointer">▶</button>`:''}
+    </div>`:''}
     <div class="k-card-ttl" style="${overdue?'color:#c07810':''}">${ overdue?'⚡ ':''}${esc(t.titulo)}</div>
     ${t.tipo==='timed'?`<div style="font-size:9px;color:#0ea5e9;font-weight:700;margin-bottom:2px">⏱ ${{daily:'Diario',weekdays:'Hábil',weekly:'Semanal',biweekly:'Quincenal',monthly:'Mensual'}[t.recur]||'Diario'}</div>`:''}
     ${t.tipo==='timed'?`<div class="k-prog-bar"><div class="k-prog-fill" style="width:${pct}%"></div></div>`:''}
@@ -1079,17 +1083,36 @@ function buildSpaceTabs(){
     document.getElementById('space-tabs').innerHTML='<button class="sp-tab on" style="--sc:#7c3aed">👤 Mis Tareas</button>';
     return;
   }
+  const extraTabs=(teamMembers.length?`<button class="sp-tab${curSpace==='terceros'?' on':''}" id="sptab-terceros"
+    style="--sc:#0ea5e9" onclick="goSpace('terceros')">👥 Terceros</button>`:'')+
+    `<button class="sp-tab${curSpace==='todo'?' on':''}" id="sptab-todo"
+    style="--sc:#888" onclick="goSpace('todo')">📋 Todo</button>`;
   document.getElementById('space-tabs').innerHTML=
     SPACES.map(s=>`<button class="sp-tab${s.id===curSpace?' on':''}" id="sptab-${s.id}"
-      style="--sc:${s.color}" onclick="goSpace('${s.id}')">${s.emoji} ${s.name}</button>`).join('');
+      style="--sc:${s.color}" onclick="goSpace('${s.id}')">${s.emoji} ${s.name}</button>`).join('')+extraTabs;
 }
 
 function goSpace(id){
+  if(id==='terceros'){
+    curSpace='terceros';kanbanFilter='member';curMod='tareas';isGlobal=false;
+    setCSSVars('pers');
+    document.querySelectorAll('.sp-tab').forEach(b=>b.classList.remove('on'));
+    const t2=document.getElementById('sptab-terceros');if(t2)t2.classList.add('on');
+    buildModBar();renderContent();renderAlerts();return;
+  }
+  if(id==='todo'){
+    curSpace='todo';kanbanFilter='all';curMod='tareas';isGlobal=false;
+    setCSSVars('pers');
+    document.querySelectorAll('.sp-tab').forEach(b=>b.classList.remove('on'));
+    const t3=document.getElementById('sptab-todo');if(t3)t3.classList.add('on');
+    buildModBar();renderContent();renderAlerts();return;
+  }
   isGlobal=(id==='global');
   if(!isGlobal){
     curSpace=id;
     setCSSVars(id);
     curMod=userRole==='member'?'tareas':(SMAP[id].mods[0]);
+    if(curMod==='tareas')kanbanFilter=id; // auto-filter to this space
   }
   document.querySelectorAll('.sp-tab').forEach(b=>b.classList.remove('on'));
   const tab=document.getElementById('sptab-'+id);
@@ -1102,9 +1125,46 @@ function goSpace(id){
 function buildModBar(){
   const bar=document.getElementById('mod-bar');
   if(isGlobal){bar.innerHTML='';return;}
+  if(curSpace==='terceros'||curSpace==='todo'){
+    bar.innerHTML=`<button class="mod-tab on">✅ Tareas</button>`;
+    return;
+  }
   const mods=userRole==='member'?['tareas']:SMAP[curSpace].mods;
   bar.innerHTML=mods.map(m=>`<button class="mod-tab${m===curMod?' on':''}" id="modtab-${m}"
     onclick="goMod('${m}')">${MOD_LABELS[m]}</button>`).join('');
+}
+
+function startTaskTimer(id,duracionMin,titulo){
+  if(_timerState)clearInterval(_timerState.intervalId);
+  const totalMs=duracionMin*60000;
+  _timerState={taskId:id,taskTitle:titulo,startMs:Date.now(),totalMs,intervalId:null};
+  closeModal();
+  _timerState.intervalId=setInterval(()=>{
+    const elapsed=Date.now()-_timerState.startMs;
+    const remaining=Math.max(0,_timerState.totalMs-elapsed);
+    const mins=Math.floor(remaining/60000);
+    const secs=Math.floor((remaining%60000)/1000);
+    const el=document.getElementById('timer-display');
+    if(el)el.textContent=`⏱ ${_timerState.taskTitle.slice(0,20)} — ${mins}:${String(secs).padStart(2,'0')}`;
+    if(remaining===0){
+      clearInterval(_timerState.intervalId);
+      if(el)el.textContent='✅ ¡Tiempo!';
+      toast('✅ ¡Tiempo terminado! '+_timerState.taskTitle,'green');
+      if(Notification&&Notification.permission==='granted'){
+        new Notification('✅ Tarea completada',{body:_timerState.taskTitle,icon:''});
+      } else if(Notification&&Notification.permission!=='denied'){
+        Notification.requestPermission().then(p=>{if(p==='granted')new Notification('✅ Tarea completada',{body:_timerState.taskTitle});});
+      }
+      setTimeout(()=>{
+        _timerState=null;
+        const el2=document.getElementById('timer-display');
+        if(el2)el2.textContent='';
+      },5000);
+    }
+  },1000);
+  toast('⏱ Cronómetro iniciado: '+duracionMin+'min','amber');
+  const el=document.getElementById('timer-display');
+  if(el)el.textContent=`⏱ ${titulo.slice(0,20)} — ${duracionMin}:00`;
 }
 
 function irATareas(){
@@ -1150,14 +1210,12 @@ function renderAlerts(){
     getData(sp.id,'vencs').forEach(v=>{
       if(v.pagado&&parseInt(v.repetir||0)===0)return;
       const d=diasHasta(v.fecha),u=parseInt(v.alerta||7);
-      if(d<0) items.push({txt:`⚠️ [${sp.name}] ${v.nombre} vencido`,cls:'red',d});
-      else if(d<=u) items.push({txt:`${d===0?'🔴 HOY':'🟡 '+d+'d'}: [${sp.name}] ${v.nombre}`,cls:d<=2?'red':'amber',d});
+      if(d>=0&&d<=u) items.push({txt:`${d===0?'🔴 HOY':'🟡 '+d+'d'}: [${sp.name}] ${v.nombre}`,cls:d<=2?'red':'amber',d});
     });
   });
   getTareas().filter(t=>t.estado!=='Finalizado'&&t.fecha).forEach(t=>{
     const d=diasHasta(t.fecha),sp=SMAP[t.space]||SPACES[0];
-    if(d<0) items.push({txt:`⚠️ Tarea vencida [${sp.name}]: ${t.titulo}`,cls:'red',d});
-    else if(d<=1) items.push({txt:`🔴 Tarea urgente [${sp.name}]: ${t.titulo}`,cls:'red',d});
+    if(d>=0&&d<=1) items.push({txt:`🔴 Tarea urgente [${sp.name}]: ${t.titulo}`,cls:'red',d});
   });
   items.sort((a,b)=>a.d-b.d);
   if(!items.length){strip.innerHTML='';return;}
@@ -1506,9 +1564,7 @@ function delVenc(id){
 // ══════════════════════════════════════════════
 function buildTareas(){
   const tareas=getTareas();
-  const memberFilter=teamMembers.length?`<button onclick="setKanbanFilter('member',this)" style="padding:5px 12px;border-radius:20px;border:1.5px solid #0ea5e9;background:rgba(14,165,233,.1);color:#0ea5e9;font-size:12.5px;font-weight:600;cursor:pointer">👤 ${teamMembers[0]?.member_name||'Martin'}</button>`:'';
-  const finToggle=`<label style="display:flex;align-items:center;gap:5px;font-size:12px;color:var(--t3);cursor:pointer;user-select:none">
-    <input type="checkbox" ${showFinaliz?'checked':''} onchange="showFinaliz=this.checked;document.getElementById('kanban-wrap').innerHTML=kanbanMode==='semana'?renderKanbanSemana(getTareas(),kanbanFilter):kanbanMode==='mes'?renderKanbanMes(getTareas(),kanbanFilter):renderKanban(getTareas(),kanbanFilter)"> Ver finalizadas</label>`;
+  const finToggle=`<button onclick="showFinaliz=!showFinaliz;renderContent()" style="padding:5px 14px;border-radius:20px;border:1.5px solid ${showFinaliz?'#1a9e72':'var(--border2)'};background:${showFinaliz?'rgba(26,158,114,.12)':'#fff'};color:${showFinaliz?'#1a9e72':'var(--t3)'};font-size:12px;font-weight:700;cursor:pointer">${showFinaliz?'✓ Finalizadas':'○ Finalizadas'}</button>`;
   const _km=kanbanMode;
   const viewToggle=`<div style="display:flex;gap:3px;background:rgba(0,0,0,.06);border-radius:8px;padding:3px">
     <button onclick="kanbanMode='estado';renderContent()" style="padding:4px 10px;border-radius:6px;border:none;font-size:12px;font-weight:600;cursor:pointer;background:${_km==='estado'?'#fff':'none'};color:${_km==='estado'?'#1a1916':'var(--t3)'}">📋 Estado</button>
@@ -1520,15 +1576,15 @@ function buildTareas(){
     <button class="btn-sec" style="font-size:13px;padding:7px 12px" onclick="nuevaTarea('Sin hacer','${curSpace}')">➕ Nueva tarea</button>
   </div>
   ${userRole==='admin'?`<div style="margin-bottom:10px">
-    <div style="display:flex;gap:5px;flex-wrap:wrap;margin-bottom:6px">
-      <button onclick="setKanbanFilter('own',this)" style="padding:5px 12px;border-radius:20px;border:1.5px solid #1a1916;font-size:12.5px;font-weight:600;cursor:pointer;background:${kanbanFilter==='own'||(!['all','member'].includes(kanbanFilter)&&kanbanFilter!=='own')?'#1a1916':'#fff'};color:${kanbanFilter==='own'||(!['all','member'].includes(kanbanFilter)&&kanbanFilter!=='own')?'#fff':'#1a1916'}">Mis tareas</button>
-      ${SPACES.map(s=>`<button onclick="setKanbanFilter('${s.id}',this)" style="padding:5px 12px;border-radius:20px;border:1.5px solid ${s.color};font-size:12.5px;font-weight:600;cursor:pointer;background:${kanbanFilter===s.id?s.color:s.bg};color:${kanbanFilter===s.id?'#fff':s.color}">${s.emoji} ${s.name}</button>`).join('')}
-    </div>
+    ${(curSpace!=='terceros'&&curSpace!=='todo'&&SMAP[curSpace])?'':`<div style="display:flex;gap:5px;flex-wrap:wrap;margin-bottom:6px">
+      <button onclick="setKanbanFilter('own',this)" style="padding:5px 12px;border-radius:20px;border:1.5px solid #1a1916;font-size:12.5px;font-weight:600;cursor:pointer;background:${kanbanFilter==='own'?'#1a1916':'#fff'};color:${kanbanFilter==='own'?'#fff':'#1a1916'}">${kanbanFilter==='own'?'✓':''} Mis tareas</button>
+      ${SPACES.map(s=>`<button onclick="setKanbanFilter('${s.id}',this)" style="padding:5px 12px;border-radius:20px;border:1.5px solid ${s.color};font-size:12.5px;font-weight:600;cursor:pointer;background:${kanbanFilter===s.id?s.color:s.bg};color:${kanbanFilter===s.id?'#fff':s.color}">${kanbanFilter===s.id?'✓ ':''}${s.emoji} ${s.name}</button>`).join('')}
+    </div>`}
     ${teamMembers.length?`<div style="display:flex;gap:5px;align-items:center;flex-wrap:wrap;padding:6px 10px;background:rgba(14,165,233,.06);border-radius:10px;border:1px solid rgba(14,165,233,.2)">
       <span style="font-size:11px;color:#0ea5e9;font-weight:700;text-transform:uppercase;letter-spacing:.05em;flex-shrink:0">Equipo</span>
-      ${teamMembers.map(m=>`<button onclick="setKanbanFilter('mb_${m.member_id}',this)" style="padding:4px 12px;border-radius:20px;border:1.5px solid #0ea5e9;font-size:12px;font-weight:600;cursor:pointer;background:${kanbanFilter==='mb_'+m.member_id?'#0ea5e9':'rgba(14,165,233,.1)'};color:${kanbanFilter==='mb_'+m.member_id?'#fff':'#0ea5e9'}">👤 ${esc(m.member_name)}</button>`).join('')}
-      <button onclick="setKanbanFilter('member',this)" style="padding:4px 12px;border-radius:20px;border:1.5px solid #888;font-size:12px;font-weight:600;cursor:pointer;background:${kanbanFilter==='member'?'#888':'rgba(0,0,0,.06)'};color:${kanbanFilter==='member'?'#fff':'#888'}">Todos</button>
-      <button onclick="setKanbanFilter('all',this)" style="padding:4px 12px;border-radius:20px;border:1.5px solid #555;font-size:12px;font-weight:600;cursor:pointer;background:${kanbanFilter==='all'?'#555':'rgba(0,0,0,.04)'};color:${kanbanFilter==='all'?'#fff':'#555'}">+ míos</button>
+      ${teamMembers.map(m=>`<button onclick="setKanbanFilter('mb_${m.member_id}',this)" style="padding:4px 12px;border-radius:20px;border:1.5px solid #0ea5e9;font-size:12px;font-weight:600;cursor:pointer;background:${kanbanFilter==='mb_'+m.member_id?'#0ea5e9':'rgba(14,165,233,.1)'};color:${kanbanFilter==='mb_'+m.member_id?'#fff':'#0ea5e9'}">${kanbanFilter==='mb_'+m.member_id?'✓ ':''}👤 ${esc(m.member_name)}</button>`).join('')}
+      <button onclick="setKanbanFilter('member',this)" style="padding:4px 12px;border-radius:20px;border:1.5px solid #888;font-size:12px;font-weight:600;cursor:pointer;background:${kanbanFilter==='member'?'#888':'rgba(0,0,0,.06)'};color:${kanbanFilter==='member'?'#fff':'#888'}">${kanbanFilter==='member'?'✓ ':''}Todos</button>
+      <button onclick="setKanbanFilter('all',this)" style="padding:4px 12px;border-radius:20px;border:1.5px solid #555;font-size:12px;font-weight:600;cursor:pointer;background:${kanbanFilter==='all'?'#555':'rgba(0,0,0,.04)'};color:${kanbanFilter==='all'?'#fff':'#555'}">${kanbanFilter==='all'?'✓ ':''}+ míos</button>
     </div>`:''}
   </div>`:''}
   <div id="kanban-wrap">${kanbanMode==='semana'?renderKanbanSemana(tareas,kanbanFilter):kanbanMode==='mes'?renderKanbanMes(tareas,kanbanFilter):renderKanban(tareas,kanbanFilter)}</div>`;
@@ -1611,13 +1667,13 @@ function abrirTarea(id){
       ${t.tipo==='timed'?`<span class="tipo-badge" style="background:rgba(14,165,233,.1);color:#0ea5e9;margin-left:5px">⏱ Con horas</span>`:''}
     </div>
     <div class="modal-ttl">${esc(t.titulo)}</div>
-    ${userRole==='admin'?`<label class="lbl">Estado global</label>
+    ${userRole==='admin'&&(!t.tipo||t.tipo==='normal')?`<label class="lbl">Estado</label>
     <div class="status-row" style="margin-bottom:12px">
       ${ESTADOS.map((e,i)=>`<button class="status-btn${t.estado===e?' on':''}"
         style="${t.estado===e?`border-color:${ESTADOS_C[i]};background:${ESTADOS_C[i]}18;color:${ESTADOS_C[i]}`:''}"
         onclick="setEstado('${id}','${e}',${i})">${e}</button>`).join('')}
     </div>`:''}
-    ${taskAssignees.length>0&&userRole==='member'?`<label class="lbl">Mi estado</label>
+    ${taskAssignees.length>0&&userRole==='member'&&(!t.tipo||t.tipo==='normal')?`<label class="lbl">Mi estado</label>
     <div class="status-row" style="margin-bottom:12px">
       ${ESTADOS.map((e,i)=>`<button class="status-btn${myEstado===e?' on':''}"
         style="${myEstado===e?`border-color:${ESTADOS_C[i]};background:${ESTADOS_C[i]}18;color:${ESTADOS_C[i]}`:''}"
@@ -1697,7 +1753,10 @@ function abrirTarea(id){
       ${isDoneOnDate(t,isoHoy())?
         `<div class="k-done-overlay" style="justify-content:space-between">✓ Hecha hoy
            <button onclick="marcarDiaRecurrente('${id}',isoHoy(),false);abrirTarea('${id}')" style="border:none;background:none;color:#1a9e72;cursor:pointer;font-weight:700;font-size:12px">↩ Desmarcar</button></div>`:
-        `<button onclick="marcarDiaRecurrente('${id}',isoHoy());abrirTarea('${id}')" style="width:100%;padding:8px;border:1.5px solid #1a9e72;border-radius:8px;background:none;color:#1a9e72;font-size:13px;font-weight:700;cursor:pointer">✓ Marcar hecho hoy</button>`}
+        `<div style="display:flex;gap:8px">
+          <button onclick="marcarDiaRecurrente('${id}',isoHoy());abrirTarea('${id}')" style="flex:1;padding:8px;border:1.5px solid #1a9e72;border-radius:8px;background:none;color:#1a9e72;font-size:13px;font-weight:700;cursor:pointer">✓ Marcar hecho hoy</button>
+          ${t.duracion_min?`<button onclick="startTaskTimer('${id}',${t.duracion_min},'${t.titulo.replace(/'/g,"\\'")}')" style="padding:8px 16px;border:1.5px solid #7c3aed;border-radius:8px;background:rgba(124,58,237,.1);color:#7c3aed;font-size:13px;font-weight:700;cursor:pointer">⏱ ${t.duracion_min}min</button>`:''}
+        </div>`}
     </div>`:''}
     <div class="fg fg2">
       <div><label class="lbl">Espacio</label>
@@ -1853,8 +1912,12 @@ function nuevaTarea(estado,space){
       </div>
     </div>
     ${userRole==='admin'&&teamMembers.length?`<div class="fg" style="margin-bottom:8px">
-      <label class="lbl">Asignar a (seleccioná las personas)</label>
-      <div style="display:flex;flex-wrap:wrap;gap:6px">
+      <label class="lbl">Esta tarea es para</label>
+      <div style="display:flex;gap:6px;margin-bottom:8px">
+        <button id="nt-btn-mi" onclick="ntParaCambio('mi')" style="flex:1;padding:8px;border-radius:10px;border:1.5px solid #7c3aed;background:rgba(124,58,237,.12);color:#7c3aed;font-size:13px;font-weight:700;cursor:pointer">👤 Para mí</button>
+        <button id="nt-btn-otro" onclick="ntParaCambio('otro')" style="flex:1;padding:8px;border-radius:10px;border:1.5px solid var(--border2);background:#fff;color:var(--t2);font-size:13px;font-weight:700;cursor:pointer">👥 Para otro</button>
+      </div>
+      <div id="nt-otros-wrap" style="display:none;flex-wrap:wrap;gap:6px">
         ${teamMembers.map(m=>`<label style="display:flex;align-items:center;gap:5px;padding:5px 10px;border-radius:20px;border:1.5px solid var(--border2);background:#fff;cursor:pointer;font-size:12.5px;font-weight:600;color:var(--t2)">
           <input type="checkbox" class="nt-assignee-cb" value="${m.member_id}"> 👤 ${esc(m.member_name)}
         </label>`).join('')}
@@ -1866,6 +1929,31 @@ function nuevaTarea(estado,space){
     </div>
     <button class="btn-p" onclick="crearTarea()">✅ Crear tarea</button>`);
 }
+function ntParaCambio(mode){
+  const wrapEl=document.getElementById('nt-otros-wrap');
+  const btnMi=document.getElementById('nt-btn-mi');
+  const btnOtro=document.getElementById('nt-btn-otro');
+  if(!wrapEl||!btnMi||!btnOtro)return;
+  if(mode==='otro'){
+    wrapEl.style.display='flex';
+    btnOtro.style.background='rgba(14,165,233,.12)';
+    btnOtro.style.borderColor='#0ea5e9';
+    btnOtro.style.color='#0ea5e9';
+    btnMi.style.background='#fff';
+    btnMi.style.borderColor='var(--border2)';
+    btnMi.style.color='var(--t2)';
+  } else {
+    wrapEl.style.display='none';
+    document.querySelectorAll('.nt-assignee-cb').forEach(cb=>cb.checked=false);
+    btnMi.style.background='rgba(124,58,237,.12)';
+    btnMi.style.borderColor='#7c3aed';
+    btnMi.style.color='#7c3aed';
+    btnOtro.style.background='#fff';
+    btnOtro.style.borderColor='var(--border2)';
+    btnOtro.style.color='var(--t2)';
+  }
+}
+
 function ntTipoCambio(){
   const t=document.getElementById('nt-tipo').value;
   document.getElementById('nt-recur-fields').style.display=t==='recurring'?'block':'none';
