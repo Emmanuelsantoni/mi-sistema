@@ -1591,8 +1591,9 @@ function buildTareas(){
         const opts=[{f:'own',lbl:'Mis tareas'}, ...teamMembers.map(m=>({f:'mb_'+m.member_id,lbl:m.member_name})),{f:'member',lbl:'Todos'}];
         return opts.map(o=>{
           const act=kanbanFilter===o.f;
-          return `<button onclick="setKanbanFilter('${o.f}',this)" style="display:flex;align-items:center;gap:6px;padding:6px 14px;border-radius:8px;border:1.5px solid ${act?'var(--color)':'var(--border2)'};background:${act?'rgba(var(--color-rgb),.1)':'#fff'};font-size:13px;font-weight:600;cursor:pointer;color:${act?'var(--color)':'var(--t2)'}">
-            <span style="width:16px;height:16px;border-radius:4px;border:2px solid ${act?'var(--color)':'#ccc'};background:${act?'var(--color)':'#fff'};display:inline-flex;align-items:center;justify-content:center;font-size:10px;color:#fff;flex-shrink:0">${act?'✓':''}</span>
+          const ac='#7c3aed';
+          return `<button onclick="setKanbanFilter('${o.f}',this)" style="display:flex;align-items:center;gap:6px;padding:6px 14px;border-radius:8px;border:1.5px solid ${act?ac:'var(--border2)'};background:${act?'rgba(124,58,237,.1)':'#fff'};font-size:13px;font-weight:600;cursor:pointer;color:${act?ac:'var(--t2)'}">
+            <span style="width:16px;height:16px;border-radius:4px;border:2px solid ${act?ac:'#ccc'};background:${act?ac:'#fff'};display:inline-flex;align-items:center;justify-content:center;font-size:10px;color:#fff;flex-shrink:0">${act?'✓':''}</span>
             ${o.lbl}
           </button>`;
         }).join('');
@@ -1604,7 +1605,7 @@ function buildTareas(){
 
 function setKanbanFilter(f,btn){
   kanbanFilter=f;
-  document.getElementById('kanban-wrap').innerHTML=kanbanMode==='semana'?renderKanbanSemana(getTareas(),f):kanbanMode==='mes'?renderKanbanMes(getTareas(),f):renderKanban(getTareas(),f);
+  renderContent();
 }
 
 function renderKanban(tareas,filter){
