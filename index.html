@@ -243,10 +243,10 @@ const sb=supabase.createClient(SUPABASE_URL,SUPABASE_KEY);
 let sbUser=null,isOnline=navigator.onLine;
 let userRole='admin';    // 'admin' | 'member'
 let teamMembers=[];      // [{member_id, member_name}]
-let kanbanMode='estado'; // 'estado' | 'semana'
+let kanbanMode='semana'; // 'estado' | 'semana'
 let _kanbanWeek=0;
 let _kanbanMesOffset=0;
-let showFinaliz=true;
+let showFinaliz=false;
 window.addEventListener('online',()=>{isOnline=true;flushQueue();updateSyncBtn();});
 window.addEventListener('offline',()=>{isOnline=false;updateSyncBtn();});
 function updateSyncBtn(){const b=document.getElementById('sync-btn');if(b)b.textContent=isOnline?'☁️':'📴';}
@@ -783,6 +783,12 @@ function renderKanbanSemana(tareas,filter){
       if(t.fecha&&byDay[t.fecha]!==undefined){byDay[t.fecha].push({task:t,fecha:t.fecha});}
       else if(!t.fecha){noDat.push({task:t,fecha:null});}
       else if(t.fecha&&t.fecha<days[0]){noDat.push({task:t,fecha:t.fecha});} // past-dated: show at bottom
+    }else if(t.tipo==='timed'&&!t.recur){
+      // timed sin repetición: mostrar como tarea normal en su fecha
+      const fd=t.fecha||t.fecha_inicio||null;
+      if(fd&&byDay[fd]!==undefined){byDay[fd].push({task:t,fecha:fd});}
+      else if(fd&&fd<days[0]){noDat.push({task:t,fecha:fd});}
+      else if(!fd){noDat.push({task:t,fecha:null});}
     }else{
       // recurring/timed: show on each day in range (null fecha_fin = sin límite)
       days.forEach(d=>{
@@ -893,13 +899,31 @@ function renderWeekCard(t,fecha,overdue){
       ${assigneeNames.length?`<span class="badge" style="font-size:9px;background:rgba(14,165,233,.1);color:#0ea5e9">👥 ${assigneeNames.map(n=>esc(n)).join(', ')}</span>`:''}
     </div>
     ${actionBtn}
-    <div style="display:flex;justify-content:flex-end;gap:3px;margin-top:4px" onclick="event.stopPropagation()">
-      <button onclick="reordenarDia('${t.id}','${fecha}','up')" title="Subir" style="padding:1px 7px;border:1px solid var(--border2);border-radius:4px;background:#fff;cursor:pointer;font-size:12px;color:var(--t2);line-height:1.6">↑</button>
-      <button onclick="reordenarDia('${t.id}','${fecha}','down')" title="Bajar" style="padding:1px 7px;border:1px solid var(--border2);border-radius:4px;background:#fff;cursor:pointer;font-size:12px;color:var(--t2);line-height:1.6">↓</button>
+    <div style="display:flex;justify-content:space-between;gap:3px;margin-top:4px" onclick="event.stopPropagation()">
+      ${(!t.tipo||t.tipo==='normal')?`<div style="display:flex;gap:3px">
+        <button onclick="moveTaskDay('${t.id}',-1)" title="Día anterior" style="padding:1px 7px;border:1px solid var(--border2);border-radius:4px;background:#fff;cursor:pointer;font-size:12px;color:var(--t2);line-height:1.6">◀</button>
+        <button onclick="moveTaskDay('${t.id}',1)" title="Día siguiente" style="padding:1px 7px;border:1px solid var(--border2);border-radius:4px;background:#fff;cursor:pointer;font-size:12px;color:var(--t2);line-height:1.6">▶</button>
+      </div>`:''}
+      <div style="display:flex;gap:3px;margin-left:auto">
+        <button onclick="reordenarDia('${t.id}','${fecha}','up')" title="Subir" style="padding:1px 7px;border:1px solid var(--border2);border-radius:4px;background:#fff;cursor:pointer;font-size:12px;color:var(--t2);line-height:1.6">↑</button>
+        <button onclick="reordenarDia('${t.id}','${fecha}','down')" title="Bajar" style="padding:1px 7px;border:1px solid var(--border2);border-radius:4px;background:#fff;cursor:pointer;font-size:12px;color:var(--t2);line-height:1.6">↓</button>
+      </div>
     </div>
   </div>`;
 }
 
+
+// ── moveTaskDay: move a normal task ±1 day ─────────────────────────────────
+function moveTaskDay(id,delta){
+  const arr=getTareas();const t=arr.find(x=>x.id===id);if(!t)return;
+  const cur=t.fecha||isoHoy();
+  const d=new Date(cur+'T12:00:00');
+  d.setDate(d.getDate()+delta);
+  t.fecha=d.toISOString().split('T')[0];
+  t._ts=Date.now();
+  setTareas(arr);
+  if(curMod==='tareas')renderContent();
+}
 
 // ── reordenarDia ─────────────────────────────────────────────────────────────
 function reordenarDia(id,fecha,dir){
@@ -1112,7 +1136,7 @@ function goSpace(id){
     curSpace=id;
     setCSSVars(id);
     curMod=userRole==='member'?'tareas':(SMAP[id].mods[0]);
-    if(curMod==='tareas')kanbanFilter=id; // auto-filter to this space
+    if(curMod==='tareas'){kanbanFilter=id;kanbanMode='semana';} // auto-filter + semana view
   }
   document.querySelectorAll('.sp-tab').forEach(b=>b.classList.remove('on'));
   const tab=document.getElementById('sptab-'+id);
@@ -1205,21 +1229,7 @@ function renderContent(){
 // ══════════════════════════════════════════════
 function renderAlerts(){
   const strip=document.getElementById('alert-strip');
-  const items=[];
-  SPACES.forEach(sp=>{
-    getData(sp.id,'vencs').forEach(v=>{
-      if(v.pagado&&parseInt(v.repetir||0)===0)return;
-      const d=diasHasta(v.fecha),u=parseInt(v.alerta||7);
-      if(d>=0&&d<=u) items.push({txt:`${d===0?'🔴 HOY':'🟡 '+d+'d'}: [${sp.name}] ${v.nombre}`,cls:d<=2?'red':'amber',d});
-    });
-  });
-  getTareas().filter(t=>t.estado!=='Finalizado'&&t.fecha).forEach(t=>{
-    const d=diasHasta(t.fecha),sp=SMAP[t.space]||SPACES[0];
-    if(d>=0&&d<=1) items.push({txt:`🔴 Tarea urgente [${sp.name}]: ${t.titulo}`,cls:'red',d});
-  });
-  items.sort((a,b)=>a.d-b.d);
-  if(!items.length){strip.innerHTML='';return;}
-  strip.innerHTML=`<div class="astrip">${items.map(i=>`<div class="astrip-item ${i.cls}">${i.txt}</div>`).join('<span style="color:#ddd;padding:0 5px">·</span>')}</div>`;
+  if(strip)strip.innerHTML='';
 }
 
 // ══════════════════════════════════════════════
@@ -1576,16 +1586,18 @@ function buildTareas(){
     <button class="btn-sec" style="font-size:13px;padding:7px 12px" onclick="nuevaTarea('Sin hacer','${curSpace}')">➕ Nueva tarea</button>
   </div>
   ${userRole==='admin'?`<div style="margin-bottom:10px">
-    ${(curSpace!=='terceros'&&curSpace!=='todo'&&SMAP[curSpace])?'':`<div style="display:flex;gap:5px;flex-wrap:wrap;margin-bottom:6px">
-      <button onclick="setKanbanFilter('own',this)" style="padding:5px 12px;border-radius:20px;border:1.5px solid #1a1916;font-size:12.5px;font-weight:600;cursor:pointer;background:${kanbanFilter==='own'?'#1a1916':'#fff'};color:${kanbanFilter==='own'?'#fff':'#1a1916'}">${kanbanFilter==='own'?'✓':''} Mis tareas</button>
-      ${SPACES.map(s=>`<button onclick="setKanbanFilter('${s.id}',this)" style="padding:5px 12px;border-radius:20px;border:1.5px solid ${s.color};font-size:12.5px;font-weight:600;cursor:pointer;background:${kanbanFilter===s.id?s.color:s.bg};color:${kanbanFilter===s.id?'#fff':s.color}">${kanbanFilter===s.id?'✓ ':''}${s.emoji} ${s.name}</button>`).join('')}
-    </div>`}
-    ${teamMembers.length?`<div style="display:flex;gap:5px;align-items:center;flex-wrap:wrap;padding:6px 10px;background:rgba(14,165,233,.06);border-radius:10px;border:1px solid rgba(14,165,233,.2)">
-      <span style="font-size:11px;color:#0ea5e9;font-weight:700;text-transform:uppercase;letter-spacing:.05em;flex-shrink:0">Equipo</span>
-      ${teamMembers.map(m=>`<button onclick="setKanbanFilter('mb_${m.member_id}',this)" style="padding:4px 12px;border-radius:20px;border:1.5px solid #0ea5e9;font-size:12px;font-weight:600;cursor:pointer;background:${kanbanFilter==='mb_'+m.member_id?'#0ea5e9':'rgba(14,165,233,.1)'};color:${kanbanFilter==='mb_'+m.member_id?'#fff':'#0ea5e9'}">${kanbanFilter==='mb_'+m.member_id?'✓ ':''}👤 ${esc(m.member_name)}</button>`).join('')}
-      <button onclick="setKanbanFilter('member',this)" style="padding:4px 12px;border-radius:20px;border:1.5px solid #888;font-size:12px;font-weight:600;cursor:pointer;background:${kanbanFilter==='member'?'#888':'rgba(0,0,0,.06)'};color:${kanbanFilter==='member'?'#fff':'#888'}">${kanbanFilter==='member'?'✓ ':''}Todos</button>
-      <button onclick="setKanbanFilter('all',this)" style="padding:4px 12px;border-radius:20px;border:1.5px solid #555;font-size:12px;font-weight:600;cursor:pointer;background:${kanbanFilter==='all'?'#555':'rgba(0,0,0,.04)'};color:${kanbanFilter==='all'?'#fff':'#555'}">${kanbanFilter==='all'?'✓ ':''}+ míos</button>
-    </div>`:''}
+    <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
+      ${(()=>{
+        const opts=[{f:'own',lbl:'Mis tareas'}, ...teamMembers.map(m=>({f:'mb_'+m.member_id,lbl:m.member_name})),{f:'member',lbl:'Todos'}];
+        return opts.map(o=>{
+          const act=kanbanFilter===o.f;
+          return `<button onclick="setKanbanFilter('${o.f}',this)" style="display:flex;align-items:center;gap:6px;padding:6px 14px;border-radius:8px;border:1.5px solid ${act?'var(--color)':'var(--border2)'};background:${act?'rgba(var(--color-rgb),.1)':'#fff'};font-size:13px;font-weight:600;cursor:pointer;color:${act?'var(--color)':'var(--t2)'}">
+            <span style="width:16px;height:16px;border-radius:4px;border:2px solid ${act?'var(--color)':'#ccc'};background:${act?'var(--color)':'#fff'};display:inline-flex;align-items:center;justify-content:center;font-size:10px;color:#fff;flex-shrink:0">${act?'✓':''}</span>
+            ${o.lbl}
+          </button>`;
+        }).join('');
+      })()}
+    </div>
   </div>`:''}
   <div id="kanban-wrap">${kanbanMode==='semana'?renderKanbanSemana(tareas,kanbanFilter):kanbanMode==='mes'?renderKanbanMes(tareas,kanbanFilter):renderKanban(tareas,kanbanFilter)}</div>`;
 }
@@ -1701,8 +1713,9 @@ function abrirTarea(id){
       </div>
       <div class="fg" style="margin-bottom:10px">
         <label class="lbl">Se repite</label>
-        <select onchange="editTarea('${id}','recur',this.value)">
-          <option value="daily"${(!t.recur||t.recur==='daily')?' selected':''}>Todos los días</option>
+        <select onchange="editTarea('${id}','recur',this.value||null)">
+          <option value=""${!t.recur?' selected':''}>Nunca</option>
+          <option value="daily"${t.recur==='daily'?' selected':''}>Todos los días</option>
           <option value="weekdays"${t.recur==='weekdays'?' selected':''}>Días hábiles (Lun–Vie)</option>
           <option value="weekly"${t.recur==='weekly'?' selected':''}>1 vez por semana</option>
           <option value="biweekly"${t.recur==='biweekly'?' selected':''}>1 vez cada 2 semanas</option>
@@ -1863,7 +1876,7 @@ function nuevaTarea(estado,space){
       <div><label class="lbl">Prioridad</label>
         <select id="nt-prio">${PRIOS.map(p=>`<option>${p}</option>`).join('')}</select>
       </div>
-      <div><label class="lbl">Fecha límite</label><input type="date" id="nt-fecha"></div>
+      <div><label class="lbl">Fecha</label><input type="date" id="nt-fecha" value="${isoHoy()}"></div>
     </div>
     <div class="fg" style="margin-bottom:8px">
       <label class="lbl">Tipo de tarea</label>
@@ -1899,6 +1912,7 @@ function nuevaTarea(estado,space){
       <div class="fg" style="margin-bottom:8px">
         <label class="lbl">Se repite</label>
           <select id="nt-trecurdays">
+            <option value="" selected>Nunca</option>
             <option value="daily">Todos los días</option>
             <option value="weekdays">Días hábiles (Lun–Vie)</option>
             <option value="weekly">1 vez por semana</option>
@@ -1970,7 +1984,7 @@ function crearTarea(){
     space:document.getElementById('nt-sp').value,
     estado:document.getElementById('nt-est').value,
     prio:document.getElementById('nt-prio').value,
-    fecha:document.getElementById('nt-fecha').value||'',
+    fecha:document.getElementById('nt-fecha').value||isoHoy(),
     desc:document.getElementById('nt-desc').value.trim(),
     creada:isoHoy(),_ts:Date.now(),
     user_id:sbUser?.id||null,
@@ -1980,7 +1994,7 @@ function crearTarea(){
     comments:[],
     tipo,
     duracion_min:tipo==='recurring'?parseInt(document.getElementById('nt-duracion')?.value)||null:null,
-    recur:tipo==='recurring'?(document.getElementById('nt-recurdays')?.value||'daily'):tipo==='timed'?(document.getElementById('nt-trecurdays')?.value||'daily'):null,
+    recur:tipo==='recurring'?(document.getElementById('nt-recurdays')?.value||'daily'):tipo==='timed'?(document.getElementById('nt-trecurdays')?.value||null):null,
     recur_completado:null,
     recur_log:[],
     horas_total:tipo==='timed'?parseFloat(document.getElementById('nt-htotal')?.value)||null:null,
