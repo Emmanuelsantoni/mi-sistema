@@ -279,7 +279,7 @@ async function pullFromSupabase(){
   try{
     const uid=sbUser.id;
     const SIDS=['pers','sant','covi','tork'];
-    const[{data:g},{data:v},{data:t},{data:n},{data:tb}]=await Promise.all([
+    const[{data:g},{data:v},{data:t},{data:n},{data:tb},{data:rb}]=await Promise.all([
       sb.from('gastos').select('*').eq('user_id',uid),
       sb.from('vencimientos').select('*').eq('user_id',uid),
       (()=>{
@@ -289,6 +289,7 @@ async function pullFromSupabase(){
       })(),
       sb.from('notas').select('*').eq('user_id',uid),
       sb.from('tombstones').select('*').eq('user_id',uid),
+      sb.from('rubros').select('*'),
     ]);
     const tombs=Object.fromEntries((tb||[]).map(x=>[x.id,new Date(x.deleted_at).getTime()]));
     function rts(x){return x&&x.updated_at?new Date(x.updated_at).getTime():0;}
@@ -355,6 +356,18 @@ async function pullFromSupabase(){
         'ms2_'+sp+'_notas','notas'
       );
     });
+    // Sync rubros
+    if(userRole==='admin'){
+      mergeTable(
+        lsLoad('ms2_rubros'),rb||[],
+        r=>({id:r.id,label:r.label,color:r.color,bg:r.bg,_ts:new Date(r.updated_at||Date.now()).getTime()}),
+        (x,u)=>({id:x.id,user_id:u,label:x.label,color:x.color,bg:x.bg,updated_at:new Date(x._ts||Date.now()).toISOString()}),
+        'ms2_rubros','rubros'
+      );
+    }else{
+      // miembros solo leen los rubros del admin
+      if(rb&&rb.length)lsSave('ms2_rubros',rb.map(r=>({id:r.id,label:r.label,color:r.color,bg:r.bg})));
+    }
     await flushQueue();
   }catch(e){console.warn('pull error',e);}
 }
@@ -399,7 +412,11 @@ function renderRubrosList(){
   const rubros=getRubros();
   const el=document.getElementById('rubros-list');
   if(!rubros.length){el.innerHTML='<div style="color:rgba(255,255,255,.4);font-size:13px;text-align:center;padding:12px">Sin rubros</div>';return;}
-  el.innerHTML=rubros.map(r=>`<div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid rgba(255,255,255,.07)">
+  el.innerHTML=rubros.map((r,i)=>`<div style="display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid rgba(255,255,255,.07)">
+    <div style="display:flex;flex-direction:column;gap:2px">
+      <button onclick="moverRubro('${r.id}',-1)" ${i===0?'disabled':''}style="background:none;border:none;color:rgba(255,255,255,.5);cursor:pointer;font-size:11px;padding:0;line-height:1;${i===0?'opacity:.3':''}" >↑</button>
+      <button onclick="moverRubro('${r.id}',1)" ${i===rubros.length-1?'disabled':''}style="background:none;border:none;color:rgba(255,255,255,.5);cursor:pointer;font-size:11px;padding:0;line-height:1;${i===rubros.length-1?'opacity:.3':''}" >↓</button>
+    </div>
     <div style="width:12px;height:12px;border-radius:50%;background:${r.color};flex-shrink:0"></div>
     <input value="${esc(r.label)}" onchange="renameRubro('${r.id}',this.value)" style="flex:1;background:transparent;border:none;color:#fff;font-size:14px;outline:none;padding:2px 0">
     <button onclick="deleteRubro('${r.id}')" style="background:rgba(220,50,50,.15);border:none;border-radius:6px;padding:4px 8px;color:#e24b4a;font-size:12px;cursor:pointer">✕</button>
@@ -411,7 +428,20 @@ function renderPaleta(){
 }
 function selPaletaColor(i){_rubroColor=PALETA[i];renderPaleta();}
 function renameRubro(id,newLabel){const rubros=getRubros();const r=rubros.find(x=>x.id===id);if(r){r.label=newLabel.trim()||r.label;saveRubros(rubros);}}
-function deleteRubro(id){saveRubros(getRubros().filter(r=>r.id!==id));renderRubrosList();}
+function moverRubro(id,delta){
+  const rubros=getRubros();
+  const i=rubros.findIndex(r=>r.id===id);
+  const ni=i+delta;
+  if(ni<0||ni>=rubros.length)return;
+  [rubros[i],rubros[ni]]=[rubros[ni],rubros[i]];
+  saveRubros(rubros);
+  renderRubrosList();
+}
+function deleteRubro(id){
+  saveRubros(getRubros().filter(r=>r.id!==id));
+  if(sbUser&&userRole==='admin')sbDel('rubros',id);
+  renderRubrosList();
+}
 function agregarRubro(){
   const nombre=document.getElementById('r-nombre').value.trim();
   if(!nombre){toast('Escribí un nombre','red');return;}
@@ -534,7 +564,14 @@ const PALETA=[
   {color:'#0e7490',bg:'#e0f5fb'},
 ];
 function getRubros(){const s=JSON.parse(localStorage.getItem('ms2_rubros')||'null');return s&&s.length?s:RUBROS_DEFAULT;}
-function saveRubros(r){localStorage.setItem('ms2_rubros',JSON.stringify(r));}
+function saveRubros(r){
+  lsSave('ms2_rubros',r);
+  RUBROS_PERS=r;
+  if(sbUser&&userRole==='admin'){
+    // upsert each rubro to Supabase
+    r.forEach(rb=>sbUpsert('rubros',{id:rb.id,user_id:sbUser.id,label:rb.label,color:rb.color,bg:rb.bg,updated_at:new Date().toISOString()}));
+  }
+}
 let RUBROS_PERS=getRubros();
 
 const ESTADOS = ['Sin hacer','Iniciado','Avanzado','Finalizado'];
