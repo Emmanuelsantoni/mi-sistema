@@ -3,7 +3,13 @@
 <head>
 <meta charset="UTF-8">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="Mi Sistema">
+  <meta name="theme-color" content="#7c3aed">
+  <link rel="manifest" href="manifest.json">
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="theme-color" content="#1a1916">
 <title>Mi Sistema</title>
@@ -241,7 +247,9 @@ const SUPABASE_URL='https://jnhilhripjvpakmhzytb.supabase.co';
 const SUPABASE_KEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpuaGlsaHJpcGp2cGFrbWh6eXRiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE2NjYwOTksImV4cCI6MjA5NzI0MjA5OX0.2GaPutKKL2sNHWLTdEQEQm0G-6E2fZJxX10Zz143-so';
 const sb=supabase.createClient(SUPABASE_URL,SUPABASE_KEY);
 let sbUser=null,isOnline=navigator.onLine;
-let userRole='admin';    // 'admin' | 'member'
+let userRole='admin';    // 'admin' | 'member' | 'partner'
+let gastoPartner=null;   // {uid,name,myName}
+let gastosView='mine';   // 'mine'|'partner'|'juntos'
 let teamMembers=[];      // [{member_id, member_name}]
 let kanbanMode='semana'; // 'estado' | 'semana'
 let _kanbanWeek=0;
@@ -280,7 +288,7 @@ async function pullFromSupabase(){
     const uid=sbUser.id;
     const SIDS=['pers','sant','covi','tork'];
     const[{data:g},{data:v},{data:t},{data:n},{data:tb},{data:rb}]=await Promise.all([
-      sb.from('gastos').select('*').eq('user_id',uid),
+      sb.from('gastos').select('*'),  // RLS returns own+partner
       sb.from('vencimientos').select('*').eq('user_id',uid),
       (()=>{
         if(userRole==='member')return sb.from('tareas').select('*').or('user_id.eq.'+uid+',assigned_to.eq.'+uid+',assignees.cs.["'+uid+'"]');
@@ -291,6 +299,15 @@ async function pullFromSupabase(){
       sb.from('tombstones').select('*').eq('user_id',uid),
       sb.from('rubros').select('*'),
     ]);
+    // Split own vs partner gastos
+    const _allGastos=g||[];
+    const _ownGastos=gastoPartner?_allGastos.filter(x=>x.user_id===uid):_allGastos;
+    const _partnerGastos=gastoPartner?_allGastos.filter(x=>x.user_id!==uid):[];
+    if(gastoPartner&&_partnerGastos.length){
+      lsSave('ms2_partner_gastos',_partnerGastos.map(r=>({id:r.id,fecha:r.fecha,importe:r.importe,rubro:r.rubro,desc:r.descripcion||'',empresa:r.empresa||'pers',user_id:r.user_id})));
+    }else if(gastoPartner&&!_partnerGastos.length){
+      // keep existing cached partner gastos if any
+    }
     const tombs=Object.fromEntries((tb||[]).map(x=>[x.id,new Date(x.deleted_at).getTime()]));
     function rts(x){return x&&x.updated_at?new Date(x.updated_at).getTime():0;}
     function mergeTable(localArr,sbArr,toLocal,toRemote,lsKey,table){
@@ -329,7 +346,7 @@ async function pullFromSupabase(){
       lsSave(lsKey,merged);
     }
     mergeTable(
-      lsLoad('ms2_pers_gastos'),g||[],
+      lsLoad('ms2_pers_gastos'),_ownGastos,
       r=>({id:r.id,fecha:r.fecha,importe:r.importe,rubro:r.rubro,desc:r.descripcion||'',empresa:r.empresa||'pers'}),
       (x,u)=>({id:x.id,user_id:u,fecha:x.fecha,importe:x.importe,rubro:x.rubro,descripcion:x.desc||'',empresa:x.empresa||'pers',updated_at:new Date(x._ts||Date.now()).toISOString()}),
       'ms2_pers_gastos','gastos'
@@ -632,15 +649,21 @@ function getDashboardMetrics(){
 }
 function renderUltimosGastos(){
   RUBROS_PERS=getRubros();
-  const gastos=getData('pers','gastos').sort((a,b)=>b.fecha.localeCompare(a.fecha)).slice(0,3);
+  const _myG=getData('pers','gastos');
+  const _ptG=gastoPartner?lsLoad('ms2_partner_gastos'):[];
+  const _allG=[..._myG.map(g=>({...g,_who:'mine'})),..._ptG.map(g=>({...g,_who:'partner'}))];
+  const _filtG=gastosView==='mine'?_myG:(gastosView==='partner'?_ptG:_allG);
+  const gastos=_filtG.sort((a,b)=>b.fecha.localeCompare(a.fecha)).slice(0,3);
   const rmap=Object.fromEntries(RUBROS_PERS.map(r=>[r.id,r]));
   const el=document.getElementById('ultimos-g');if(!el)return;
   if(!gastos.length){el.innerHTML='<div class="empty">Sin gastos aún.</div>';return;}
   el.innerHTML=gastos.map(g=>{
     const r=rmap[g.rubro]||{label:g.rubro,color:'#888',bg:'#eee'};
     const emp=EMPRESAS_MAP[g.empresa||'pers']||EMPRESAS_MAP.pers;
+    const whoLabel=(gastosView==='juntos'&&gastoPartner)?'<span style="font-size:11px;color:var(--t3);margin-left:4px">— '+(g._who==='partner'?gastoPartner.name:gastoPartner.myName)+'</span>':'';
     return '<div style="display:flex;align-items:center;gap:10px;padding:9px 0;border-bottom:1px solid var(--border)">'
       +'<div style="flex:1"><span class="badge" style="background:'+r.bg+';color:'+r.color+'">'+esc(r.label)+'</span>'
+      +whoLabel
       +(g.desc?'<span style="font-size:12px;color:var(--t2);margin-left:6px">'+esc(g.desc)+'</span>':'')+'</div>'
       +'<div style="text-align:right"><div style="font-weight:700;font-size:14px">'+fmtM(g.importe)+'</div>'
       +'<div style="font-size:11px;color:var(--t3)">'+fmtD(g.fecha)+'</div></div></div>';
@@ -658,7 +681,16 @@ async function detectRole(){
     if(m&&m.admin_id){userRole='member';return;}
     const{data:tm}=await sb.from('team_members').select('member_id,member_name').eq('admin_id',sbUser.id);
     teamMembers=tm||[];
-    userRole='admin';
+    // Check partner relationship
+    try{
+      const{data:p}=await sb.from('partners').select('*')
+        .or('user_id1.eq.'+sbUser.id+',user_id2.eq.'+sbUser.id).maybeSingle();
+      if(p){
+        const isUid1=(p.user_id1===sbUser.id);
+        gastoPartner={uid:isUid1?p.user_id2:p.user_id1,name:isUid1?p.name2:p.name1,myName:isUid1?p.name1:p.name2};
+      }
+    }catch(pe){console.warn('partner check:',pe);}
+    userRole=(teamMembers.length===0&&gastoPartner)?'partner':'admin';
   }catch(e){console.warn('detectRole:',e);}
 }
 
@@ -1144,12 +1176,17 @@ function buildSpaceTabs(){
     document.getElementById('space-tabs').innerHTML='<button class="sp-tab on" style="--sc:#7c3aed">👤 Mis Tareas</button>';
     return;
   }
+  if(userRole==='partner'){
+    const sp=SPACES.find(s=>s.id==='pers');
+    document.getElementById('space-tabs').innerHTML=`<button class="sp-tab on" style="--sc:${sp.color}" onclick="goSpace('pers')">${sp.emoji} ${sp.name}</button>`;
+    return;
+  }
   const extraTabs=(teamMembers.length?`<button class="sp-tab${curSpace==='terceros'?' on':''}" id="sptab-terceros"
     style="--sc:#0ea5e9" onclick="goSpace('terceros')">👥 Terceros</button>`:'')+
     `<button class="sp-tab${curSpace==='todo'?' on':''}" id="sptab-todo"
     style="--sc:#888" onclick="goSpace('todo')">📋 Todo</button>`;
   document.getElementById('space-tabs').innerHTML=
-    SPACES.map(s=>`<button class="sp-tab${s.id===curSpace?' on':''}" id="sptab-${s.id}"
+    [SPACES.find(s=>s.id==='pers')].map(s=>`<button class="sp-tab${s.id===curSpace?' on':''}" id="sptab-${s.id}"
       style="--sc:${s.color}" onclick="goSpace('${s.id}')">${s.emoji} ${s.name}</button>`).join('')+extraTabs;
 }
 
@@ -1415,14 +1452,16 @@ function buildGastos(){
   const gastos=getData('pers','gastos');
   const meses=[...new Set(gastos.map(g=>mesKey(g.fecha)))].sort().reverse();
   const emps=Object.values(EMPRESAS_MAP);
-  return`<div class="card">
+  const _ptabs=gastoPartner?`<div style="display:flex;gap:4px;margin-bottom:14px;background:rgba(0,0,0,.07);border-radius:10px;padding:4px">
+    ${['mine','partner','juntos'].map(v=>{
+      const lbl=v==='mine'?gastoPartner.myName:v==='partner'?gastoPartner.name:'Juntos';
+      const act=gastosView===v;
+      return '<button onclick="setGastosView(\''+v+'\',this)" style="flex:1;padding:8px 4px;border:none;border-radius:7px;cursor:pointer;font-size:13px;font-weight:'+(act?'700':'500')+';background:'+(act?'#7c3aed':'transparent')+';color:'+(act?'#fff':'#555')+';transition:all .2s">'+lbl+'</button>';
+    }).join('')}
+  </div>`:'';
+  return `<div class="card">
     <div style="display:flex;justify-content:space-between;align-items:center"><div class="card-ttl">Registrar gasto</div><button onclick="openRubrosModal()" style="background:rgba(255,255,255,.08);border:none;border-radius:7px;padding:5px 9px;color:rgba(255,255,255,.6);font-size:12px;cursor:pointer">⚙️ Rubros</button></div>
-    <label class="lbl">Para</label>
-    <div class="chips" id="chips-emp" style="margin-bottom:12px">
-      ${emps.map((e,i)=>`<div class="chip" data-id="${e.id}" onclick="selEmpresa('${e.id}')"
-        style="background:${i===0?e.bg:'rgba(255,255,255,.06)'};color:${i===0?e.color:'var(--t2)'};border-color:${i===0?e.color:'transparent'};${i===0?'box-shadow:0 0 0 2px '+e.color+'44':''}">${e.label}</div>`).join('')}
-    </div>
-    <input type="hidden" id="g-empresa" value="pers">
+    ${_ptabs}
     <label class="lbl">Rubro</label>
     <div class="chips" id="chips-g">
       ${RUBROS_PERS.map(r=>`<div class="chip" data-id="${r.id}" onclick="selChip('${r.id}')"
@@ -1446,10 +1485,7 @@ function buildGastos(){
         <option value="">Todos los meses</option>
         ${meses.map(m=>`<option value="${m}">${mesLbl(m)}</option>`).join('')}
       </select>
-      <select id="f-emp" onchange="renderTablaGastos()">
-        <option value="">Todas</option>
-        ${emps.map(e=>`<option value="${e.id}">${e.label}</option>`).join('')}
-      </select>
+
     </div>
     <div id="tabla-g"></div>
   </div>`;
@@ -1487,23 +1523,25 @@ function renderTablaGastos(){
   RUBROS_PERS=getRubros();
   const mes=document.getElementById('f-mes')?.value||'';
   const empF=document.getElementById('f-emp')?.value||'';
-  const gastos=getData('pers','gastos');
+  const _myGT=getData('pers','gastos');
+  const _ptGT=gastoPartner?lsLoad('ms2_partner_gastos'):[];
+  const gastos=gastosView==='mine'?_myGT:gastosView==='partner'?_ptGT:[..._myGT.map(g=>({...g,_who:'mine'})),..._ptGT.map(g=>({...g,_who:'partner'}))];
   const rmap=Object.fromEntries(RUBROS_PERS.map(r=>[r.id,r]));
   const data=gastos.filter(g=>(!mes||mesKey(g.fecha)===mes)&&(!empF||(g.empresa||'pers')===empF)).sort((a,b)=>b.fecha.localeCompare(a.fecha));
   const wrap=document.getElementById('tabla-g');if(!wrap)return;
   if(!data.length){wrap.innerHTML='<div class="empty">Sin gastos.</div>';return;}
   const total=data.reduce((s,g)=>s+g.importe,0);
   wrap.innerHTML=`<div style="overflow-x:auto"><table class="tbl">
-    <thead><tr><th>Fecha</th><th>Para</th><th>Rubro</th><th>Descripción</th><th style="text-align:right">Importe</th><th></th></tr></thead>
-    <tbody>${data.map(g=>{const r=rmap[g.rubro]||{label:g.rubro,color:'#888',bg:'#eee'};const emp=EMPRESAS_MAP[g.empresa||'pers']||EMPRESAS_MAP.pers;return`<tr>
+    <thead><tr><th>Fecha</th>${gastosView==='juntos'&&gastoPartner?'<th>Quién</th>':''}<th>Rubro</th><th>Descripción</th><th style="text-align:right">Importe</th><th></th></tr></thead>
+    <tbody>${data.map(g=>{const r=rmap[g.rubro]||{label:g.rubro,color:'#888',bg:'#eee'};const emp=EMPRESAS_MAP[g.empresa||'pers']||EMPRESAS_MAP.pers;const isOwn=!g._who||g._who==='mine';return`<tr>
       <td style="font-size:13px;white-space:nowrap">${fmtD(g.fecha)}</td>
-      <td><span class="badge" style="background:${emp.bg};color:${emp.color}">${esc(emp.label)}</span></td>
+      ${gastosView==='juntos'&&gastoPartner?`<td style="font-size:12px;color:var(--t3)">${isOwn?gastoPartner.myName:gastoPartner.name}</td>`:''}
       <td><span class="badge" style="background:${r.bg};color:${r.color}">${esc(r.label)}</span></td>
       <td style="color:var(--t2);font-size:13px">${esc(g.desc)||'—'}</td>
       <td style="text-align:right;font-weight:700;white-space:nowrap">${fmtM(g.importe)}</td>
-      <td><button class="btn-xs" style="background:var(--red-bg);color:var(--red);border-color:var(--red)" onclick="delGasto('${g.id}')">✕</button></td>
+      <td>${isOwn?`<button class="btn-xs" style="background:var(--red-bg);color:var(--red);border-color:var(--red)" onclick="delGasto('${g.id}')">✕</button>`:''}</td>
     </tr>`;}).join('')}</tbody>
-    <tfoot><tr class="tbl-tot"><td colspan="4">Total</td><td style="text-align:right">${fmtM(total)}</td><td></td></tr></tfoot>
+    <tfoot><tr class="tbl-tot"><td colspan="${gastosView==='juntos'&&gastoPartner?4:3}">Total</td><td style="text-align:right">${fmtM(total)}</td><td></td></tr></tfoot>
   </table></div>`;
 }
 
@@ -1511,6 +1549,10 @@ function delGasto(id){
   setData('pers','gastos',getData('pers','gastos').filter(g=>g.id!==id));
   sbDel('gastos',id);sbTombstone(id,'gastos');
   renderTablaGastos();
+}
+function setGastosView(v){
+  gastosView=v;
+  renderContent();
 }
 
 // ══════════════════════════════════════════════
