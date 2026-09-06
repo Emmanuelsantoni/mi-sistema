@@ -2151,10 +2151,16 @@ function delNota(id){
 // RESUMEN (solo Personal)
 // ══════════════════════════════════════════════
 function buildResumen(){
-  const gastos=getData('pers','gastos');
+  const _myGR=getData('pers','gastos');
+  const _ptGR=gastoPartner?lsLoad('ms2_partner_gastos'):[];
+  const _allGR=[..._myGR.map(g=>({...g,_who:'mine'})),..._ptGR.map(g=>({...g,_who:'partner'}))];
+  const gastos=gastosView==='mine'?_myGR:gastosView==='partner'?_ptGR:_allGR;
   const meses=[...new Set(gastos.map(g=>mesKey(g.fecha)))].sort().reverse();
   const mes=meses[0]||'';
-  return`<div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;flex-wrap:wrap">
+  const _ptabsR=gastoPartner?`<div style="display:flex;gap:4px;margin-bottom:14px;background:rgba(0,0,0,.07);border-radius:10px;padding:4px">
+    ${['mine','partner','juntos'].map(v=>{const lbl=v==='mine'?gastoPartner.myName:v==='partner'?gastoPartner.name:'Juntos';const act=gastosView===v;return '<button onclick="setGastosView(\''+v+'\',this)" style="flex:1;padding:8px 4px;border:none;border-radius:7px;cursor:pointer;font-size:13px;font-weight:'+(act?'700':'500')+';background:'+(act?'#7c3aed':'transparent')+';color:'+(act?'#fff':'#555')+';transition:all .2s">'+lbl+'</button>';}).join('')}
+  </div>`:'';
+  return _ptabsR+`<div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;flex-wrap:wrap">
     <label class="lbl" style="margin:0">Mes:</label>
     <select id="rs-mes" onchange="renderResumenData()" style="width:auto">
       ${meses.length?meses.map(m=>`<option value="${m}"${m===mes?' selected':''}>${mesLbl(m)}</option>`).join(''):'<option>Sin datos</option>'}
@@ -2167,7 +2173,10 @@ function buildResumen(){
 function renderResumenData(){
   const sel=document.getElementById('rs-mes');if(!sel)return;
   const mes=sel.value;
-  const gastos=getData('pers','gastos');
+  const _myGRD=getData('pers','gastos');
+  const _ptGRD=gastoPartner?lsLoad('ms2_partner_gastos'):[];
+  const _allGRD=[..._myGRD.map(g=>({...g,_who:'mine'})),..._ptGRD.map(g=>({...g,_who:'partner'}))];
+  const gastos=gastosView==='mine'?_myGRD:gastosView==='partner'?_ptGRD:_allGRD;
   const rmap=Object.fromEntries(RUBROS_PERS.map(r=>[r.id,r]));
   const data=gastos.filter(g=>mesKey(g.fecha)===mes).sort((a,b)=>a.fecha.localeCompare(b.fecha));
   const wrap=document.getElementById('rs-data');if(!wrap)return;
