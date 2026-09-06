@@ -374,17 +374,21 @@ async function pullFromSupabase(){
         'ms2_'+sp+'_notas','notas'
       );
     });
-    // Sync rubros
+    // Sync rubros — split own vs partner
+    const _uid=uid;
+    const _ownRb=(rb||[]).filter(r=>r.user_id===_uid);
+    const _ptRb=(rb||[]).filter(r=>r.user_id!==_uid);
+    if(_ptRb.length) lsSave('ms2_partner_rubros',_ptRb.map(r=>({id:r.id,label:r.label,color:r.color,bg:r.bg})));
     if(userRole==='admin'||userRole==='partner'){
       mergeTable(
-        lsLoad('ms2_rubros'),rb||[],
+        lsLoad('ms2_rubros'),_ownRb,
         r=>({id:r.id,label:r.label,color:r.color,bg:r.bg,_ts:new Date(r.updated_at||Date.now()).getTime()}),
         (x,u)=>({id:x.id,user_id:u,label:x.label,color:x.color,bg:x.bg,updated_at:new Date(x._ts||Date.now()).toISOString()}),
         'ms2_rubros','rubros'
       );
     }else{
       // miembros solo leen los rubros del admin
-      if(rb&&rb.length)lsSave('ms2_rubros',rb.map(r=>({id:r.id,label:r.label,color:r.color,bg:r.bg})));
+      if(_ownRb.length)lsSave('ms2_rubros',_ownRb.map(r=>({id:r.id,label:r.label,color:r.color,bg:r.bg})));
     }
     await flushQueue();
   }catch(e){console.warn('pull error',e);}
@@ -591,6 +595,14 @@ function saveRubros(r){
   }
 }
 let RUBROS_PERS=getRubros();
+function buildRubroMap(){
+  const own=RUBROS_PERS.length?RUBROS_PERS:getRubros();
+  const pt=gastoPartner?lsLoad('ms2_partner_rubros'):[];
+  const map={};
+  pt.forEach(r=>{map[r.id]=r;});
+  own.forEach(r=>{map[r.id]=r;});  // own overrides
+  return map;
+}
 
 const ESTADOS = ['Sin hacer','Iniciado','Avanzado','Finalizado'];
 const ESTADOS_C = ['#9c9890','#2878d4','#c07810','#1a9e72'];
@@ -655,7 +667,7 @@ function renderUltimosGastos(){
   const _allG=[..._myG.map(g=>({...g,_who:'mine'})),..._ptG.map(g=>({...g,_who:'partner'}))];
   const _filtG=gastosView==='mine'?_myG:(gastosView==='partner'?_ptG:_allG);
   const gastos=_filtG.sort((a,b)=>b.fecha.localeCompare(a.fecha)).slice(0,3);
-  const rmap=Object.fromEntries(RUBROS_PERS.map(r=>[r.id,r]));
+  const rmap=buildRubroMap();
   const el=document.getElementById('ultimos-g');if(!el)return;
   if(!gastos.length){el.innerHTML='<div class="empty">Sin gastos aún.</div>';return;}
   el.innerHTML=gastos.map(g=>{
@@ -1527,7 +1539,7 @@ function renderTablaGastos(){
   const _myGT=getData('pers','gastos');
   const _ptGT=gastoPartner?lsLoad('ms2_partner_gastos'):[];
   const gastos=gastosView==='mine'?_myGT:gastosView==='partner'?_ptGT:[..._myGT.map(g=>({...g,_who:'mine'})),..._ptGT.map(g=>({...g,_who:'partner'}))];
-  const rmap=Object.fromEntries(RUBROS_PERS.map(r=>[r.id,r]));
+  const rmap=buildRubroMap();
   const data=gastos.filter(g=>(!mes||mesKey(g.fecha)===mes)&&(!empF||(g.empresa||'pers')===empF)).sort((a,b)=>b.fecha.localeCompare(a.fecha));
   const wrap=document.getElementById('tabla-g');if(!wrap)return;
   if(!data.length){wrap.innerHTML='<div class="empty">Sin gastos.</div>';return;}
@@ -2173,11 +2185,8 @@ function buildResumen(){
 function renderResumenData(){
   const sel=document.getElementById('rs-mes');if(!sel)return;
   const mes=sel.value;
-  const _myGRD=getData('pers','gastos');
-  const _ptGRD=gastoPartner?lsLoad('ms2_partner_gastos'):[];
-  const _allGRD=[..._myGRD.map(g=>({...g,_who:'mine'})),..._ptGRD.map(g=>({...g,_who:'partner'}))];
-  const gastos=gastosView==='mine'?_myGRD:gastosView==='partner'?_ptGRD:_allGRD;
-  const rmap=Object.fromEntries(RUBROS_PERS.map(r=>[r.id,r]));
+  const gastos=getData('pers','gastos');
+  const rmap=buildRubroMap();
   const data=gastos.filter(g=>mesKey(g.fecha)===mes).sort((a,b)=>a.fecha.localeCompare(b.fecha));
   const wrap=document.getElementById('rs-data');if(!wrap)return;
   if(!data.length){wrap.innerHTML='<div class="empty">Sin datos para este mes.</div>';return;}
