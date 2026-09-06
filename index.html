@@ -375,7 +375,7 @@ async function pullFromSupabase(){
       );
     });
     // Sync rubros
-    if(userRole==='admin'){
+    if(userRole==='admin'||userRole==='partner'){
       mergeTable(
         lsLoad('ms2_rubros'),rb||[],
         r=>({id:r.id,label:r.label,color:r.color,bg:r.bg,_ts:new Date(r.updated_at||Date.now()).getTime()}),
@@ -457,7 +457,7 @@ function moverRubro(id,delta){
 }
 function deleteRubro(id){
   saveRubros(getRubros().filter(r=>r.id!==id));
-  if(sbUser&&userRole==='admin')sbDel('rubros',id);
+  if(sbUser&&(userRole==='admin'||userRole==='partner'))sbDel('rubros',id);
   renderRubrosList();
 }
 function agregarRubro(){
@@ -585,7 +585,7 @@ function getRubros(){const s=JSON.parse(localStorage.getItem('ms2_rubros')||'nul
 function saveRubros(r){
   lsSave('ms2_rubros',r);
   RUBROS_PERS=r;
-  if(sbUser&&userRole==='admin'){
+  if(sbUser&&(userRole==='admin'||userRole==='partner')){
     // upsert each rubro to Supabase
     r.forEach(rb=>sbUpsert('rubros',{id:rb.id,user_id:sbUser.id,label:rb.label,color:rb.color,bg:rb.bg,updated_at:new Date().toISOString()}));
   }
